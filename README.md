@@ -1,4 +1,4 @@
-# OmniGuard – Setup de las pantallas nuevas
+# OmniGuard – Configuración para desplegar en Android Studio
 
 ## 1. Instalar dependencias de navegación
 Instálalas con el comando de Expo
