@@ -7,9 +7,17 @@ import { useUser } from '../context/UserContext';
 
 export default function ProfileScreen({ navigation }) {
     const { user, logout } = useUser();
-    const initials = user?.nombre
-        ? user.nombre.split(' ').map((n) => n[0]).slice(0, 2).join('')
-        : '?';
+    let initials = '?';
+    if (user?.datosReniec?.first_name && user?.datosReniec?.first_last_name) {
+        initials = `${user.datosReniec.first_name[0]}${user.datosReniec.first_last_name[0]}`.toUpperCase();
+    } else if (user?.nombre) {
+        const parts = user.nombre.trim().split(/\s+/);
+        if (parts.length >= 2) {
+            initials = `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+        } else if (parts.length === 1) {
+            initials = parts[0][0].toUpperCase();
+        }
+    }
 
     const handleLogout = () => {
         logout();

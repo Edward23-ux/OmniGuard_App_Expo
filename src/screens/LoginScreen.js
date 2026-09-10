@@ -14,9 +14,10 @@ import { globalStyles, colors, spacing, typography, radius } from '../styles/glo
 import { useUser } from '../context/UserContext';
 
 export default function LoginScreen({ navigation }) {
-    const { login } = useUser();
+    const { login, consultarDniReniec } = useUser();
     const [dni, setDni] = useState('');
     const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false);
 
     const isValidDni = dni.length === 8;
 
@@ -26,13 +27,23 @@ export default function LoginScreen({ navigation }) {
         if (error) setError('');
     };
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (!isValidDni) {
             setError('El DNI debe tener 8 dígitos.');
             return;
         }
-        login(dni);
-        navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+        setLoading(true);
+        setError('');
+
+        try {
+            const userData = await consultarDniReniec(dni);
+            login(userData);
+            navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+        } catch (err) {
+            setError(err.message || 'Error al consultar el DNI.');
+        } finally {
+            setLoading(false);
+        }
     };
 
     return (

@@ -1,32 +1,52 @@
 import React, { createContext, useContext, useState, useMemo } from 'react';
 
-/**
- * UserContext (mock)
- * Guarda el DNI validado y un nombre simulado, ya que aún no hay conexión
- * a base de datos. Cuando se integre Supabase, `login()` debe reemplazarse
- * por la consulta real y `user` debe poblarse con la respuesta del backend.
- */
 const UserContext = createContext(null);
 
-// Nombres de ejemplo para simular distintos usuarios según el DNI ingresado
-const MOCK_NAMES = [
-    'Carlos Ramírez Soto',
-    'María Fernández Quispe',
-    'Jorge Luna Vidal',
-    'Ana Torres Meza',
-];
+// Espacio reservado para tu API Key de RENIEC (por ahora estático, luego vendrá de Supabase)
+const RENIEC_API_KEY = 'sk';
 
 export function UserProvider({ children }) {
-    const [user, setUser] = useState(null); // { dni, nombre }
+    const [user, setUser] = useState(null);
 
-    const login = (dni) => {
-        const nombre = MOCK_NAMES[Number(dni) % MOCK_NAMES.length];
-        setUser({ dni, nombre });
+    // Función para consultar la API de RENIEC con el DNI
+    const consultarDniReniec = async (dni) => {
+        try {
+            const response = await fetch(`https://api.decolecta.com/v1/reniec/dni?numero=${dni}`, {
+                headers: {
+                    'Authorization': `Bearer ${RENIEC_API_KEY}`,
+                    'Accept': 'application/json',
+                },
+            });
+
+            const data = await response.json();
+
+            if (!response.ok || data.error) {
+                throw new Error(data.error || 'DNI no encontrado o error en la consulta.');
+            }
+
+            const nombres = data.first_name || '';
+            const apellidos = [data.first_last_name, data.second_last_name].filter(Boolean).join(' ');
+            const nombreFormateado = `${nombres} ${apellidos}`.trim() || data.full_name;
+
+            return {
+                dni: data.document_number || dni,
+                nombre: nombreFormateado,
+                datosReniec: data,
+            };
+        } catch (error) {
+            console.error('Error al consultar RENIEC:', error);
+            throw error;
+        }
+    };
+
+    const login = (userData) => {
+        // userData puede ser { dni, nombre } directamente
+        setUser(userData);
     };
 
     const logout = () => setUser(null);
 
-    const value = useMemo(() => ({ user, login, logout }), [user]);
+    const value = useMemo(() => ({ user, login, logout, consultarDniReniec, RENIEC_API_KEY }), [user]);
 
     return <UserContext.Provider value={value}>{children}</UserContext.Provider>;
 }
