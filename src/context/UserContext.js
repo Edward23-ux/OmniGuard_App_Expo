@@ -2,13 +2,13 @@ import React, { createContext, useContext, useState, useMemo } from 'react';
 
 const UserContext = createContext(null);
 
-// Espacio reservado para tu API Key de RENIEC (por ahora estático, luego vendrá de Supabase)
-const RENIEC_API_KEY = 'sk';
+
+const RENIEC_API_KEY = 'sk_17679.mlnSmvh3Zdgj0PxowNACXExua4CQrRbO';
 
 export function UserProvider({ children }) {
     const [user, setUser] = useState(null);
 
-    // Función para consultar la API de RENIEC con el DNI
+
     const consultarDniReniec = async (dni) => {
         try {
             const response = await fetch(`https://api.decolecta.com/v1/reniec/dni?numero=${dni}`, {
@@ -40,7 +40,7 @@ export function UserProvider({ children }) {
     };
 
     const login = (userData) => {
-        // userData puede ser { dni, nombre } directamente
+
         setUser(userData);
     };
 

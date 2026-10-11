@@ -38,7 +38,7 @@ export default function LoginScreen({ navigation }) {
         try {
             const userData = await consultarDniReniec(dni);
             login(userData);
-            navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+            navigation.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
         } catch (err) {
             setError(err.message || 'Error al consultar el DNI.');
         } finally {

@@ -24,11 +24,19 @@ export default function ProfileScreen({ navigation }) {
         navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
     };
 
+    const handleBack = () => {
+        if (navigation.canGoBack()) {
+            navigation.goBack();
+        } else {
+            navigation.navigate('Home');
+        }
+    };
+
     return (
-        <SafeAreaView style={globalStyles.screen}>
+        <SafeAreaView style={globalStyles.screen} edges={['top', 'left', 'right']}>
             <View style={globalStyles.container}>
                 <View style={styles.headerRow}>
-                    <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={10}>
+                    <TouchableOpacity onPress={handleBack} hitSlop={10}>
                         <Ionicons name="arrow-back" size={24} color={colors.text} />
                     </TouchableOpacity>
                     <Text style={typography.h2}>Mi Perfil</Text>
