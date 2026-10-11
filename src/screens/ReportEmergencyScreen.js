@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Path, Circle, Line } from 'react-native-svg';
 import { globalStyles, colors, spacing, typography, radius } from '../styles/globalStyles';
+import { saveNewReport } from '../services/reportStorage';
 
 export const iconoTipo = {
     'Incendio': (
@@ -76,17 +77,24 @@ const EMERGENCY_TYPES = [
 export default function ReportEmergencyScreen({ navigation }) {
     const [selected, setSelected] = useState(null);
 
-    const handleReport = () => {
+    const handleReport = async () => {
         const tipo = EMERGENCY_TYPES.find((t) => t.id === selected);
-        if (Platform.OS === 'web') {
-            alert(`Se registró tu emergencia de tipo "${tipo?.label}". Un bombero revisará tu reporte.`);
-            navigation.navigate('MainTabs', { screen: 'MisReportes' });
-        } else {
-            Alert.alert(
-                'Reporte enviado',
-                `Se registró tu emergencia de tipo "${tipo?.label}". Un bombero revisará tu reporte.`,
-                [{ text: 'OK', onPress: () => navigation.navigate('MainTabs', { screen: 'MisReportes' }) }]
-            );
+        if (!tipo) return;
+
+        try {
+            await saveNewReport(tipo.label);
+            if (Platform.OS === 'web') {
+                alert(`Se registró tu emergencia de tipo "${tipo.label}". Un bombero revisará tu reporte.`);
+                navigation.navigate('MainTabs', { screen: 'MisReportes' });
+            } else {
+                Alert.alert(
+                    'Reporte enviado',
+                    `Se registró tu emergencia de tipo "${tipo.label}". Un bombero revisará tu reporte.`,
+                    [{ text: 'OK', onPress: () => navigation.navigate('MainTabs', { screen: 'MisReportes' }) }]
+                );
+            }
+        } catch (error) {
+            Alert.alert('Error', 'No se pudo guardar el reporte en la memoria local.');
         }
     };
 

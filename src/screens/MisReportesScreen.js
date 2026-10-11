@@ -1,16 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { globalStyles, colors, spacing, typography, radius } from '../styles/globalStyles';
-
-// Historial simulado — base de datos mock conectada con el ciclo de vida
-const MOCK_REPORTS = [
-    { id: '1', tipo: 'Incendio', fecha: '05/09/2026 · 18:42', estado: 'En Proceso' },
-    { id: '2', tipo: 'Accidente Vehicular', fecha: '02/09/2026 · 09:10', estado: 'Culminado' },
-    { id: '3', tipo: 'Fuga de Gas', fecha: '28/08/2026 · 21:05', estado: 'Falsa Alarma' },
-    { id: '4', tipo: 'Inundación', fecha: '20/08/2026 · 07:33', estado: 'Culminado' },
-];
+import { globalStyles, colors, spacing, typography } from '../styles/globalStyles';
+import { getStoredReports } from '../services/reportStorage';
 
 const STATUS_STYLES = {
     Pendiente: { bg: '#FEF0C7', color: '#B54708' },
@@ -34,26 +28,31 @@ export default function MisReportesScreen({ navigation }) {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
 
-    // 2. Función de sincronización asíncrona
-    const cargarReportes = useCallback(() => {
-        return setTimeout(() => {
-            setReports(MOCK_REPORTS);
+    // 2. Consulta asíncrona a AsyncStorage
+    const cargarReportes = useCallback(async (isRefresh = false) => {
+        if (!isRefresh) setLoading(true);
+        try {
+            const data = await getStoredReports();
+            setReports(data);
+        } catch (error) {
+            console.error('Error al cargar reportes:', error);
+        } finally {
             setLoading(false);
             setRefreshing(false);
-        }, 800);
+        }
     }, []);
 
-    // 3. Efecto sincronizado con useEffect (Ciclo de vida y Clean-up)
-    useEffect(() => {
-        const timerId = cargarReportes();
-        // Función de limpieza para prevenir fugas de memoria si la pantalla se desmonta
-        return () => clearTimeout(timerId);
-    }, [cargarReportes]);
+    // 3. Sincronización con useFocusEffect: se ejecuta cada vez que la pestaña gana foco
+    useFocusEffect(
+        useCallback(() => {
+            cargarReportes();
+        }, [cargarReportes])
+    );
 
-    // 4. Manejo de evento de usuario: Pull-to-refresh
+    // 4. Evento de usuario: Pull-to-refresh
     const handleRefresh = () => {
         setRefreshing(true);
-        cargarReportes();
+        cargarReportes(true);
     };
 
     const handleBack = () => {
