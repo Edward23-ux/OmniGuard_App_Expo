@@ -5,7 +5,7 @@ Instálalas con el comando de Expo
 (resuelve versiones compatibles automáticamente):
 
 ```bash
-npx expo install @react-navigation/native @react-navigation/native-stack @react-navigation/bottom-tabs react-native-screens react-native-safe-area-context
+npx expo install @react-navigation/native @react-navigation/native-stack @react-navigation/bottom-tabs react-native-screens react-native-safe-area-context @react-native-async-storage/async-storage
 ```
 
 ## 2. Ejecutar

@@ -1,17 +1,10 @@
-import React from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { globalStyles, colors, spacing, typography } from '../styles/globalStyles';
-
-// Historial simulado — al conectar Supabase, reemplazar por una consulta
-// filtrada por el DNI del usuario autenticado.
-const MOCK_REPORTS = [
-    { id: '1', tipo: 'Incendio', fecha: '05/09/2026 · 18:42', estado: 'En Proceso' },
-    { id: '2', tipo: 'Accidente Vehicular', fecha: '02/09/2026 · 09:10', estado: 'Culminado' },
-    { id: '3', tipo: 'Fuga de Gas', fecha: '28/08/2026 · 21:05', estado: 'Falsa Alarma' },
-    { id: '4', tipo: 'Inundación', fecha: '20/08/2026 · 07:33', estado: 'Culminado' },
-];
+import { getStoredReports } from '../services/reportStorage';
 
 const STATUS_STYLES = {
     Pendiente: { bg: '#FEF0C7', color: '#B54708' },
@@ -30,6 +23,38 @@ function StatusBadge({ estado }) {
 }
 
 export default function MisReportesScreen({ navigation }) {
+    // 1. Estados dinámicos gestionados con useState
+    const [reports, setReports] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+
+    // 2. Consulta asíncrona a AsyncStorage
+    const cargarReportes = useCallback(async (isRefresh = false) => {
+        if (!isRefresh) setLoading(true);
+        try {
+            const data = await getStoredReports();
+            setReports(data);
+        } catch (error) {
+            console.error('Error al cargar reportes:', error);
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
+        }
+    }, []);
+
+    // 3. Sincronización con useFocusEffect: se ejecuta cada vez que la pestaña gana foco
+    useFocusEffect(
+        useCallback(() => {
+            cargarReportes();
+        }, [cargarReportes])
+    );
+
+    // 4. Evento de usuario: Pull-to-refresh
+    const handleRefresh = () => {
+        setRefreshing(true);
+        cargarReportes(true);
+    };
+
     const handleBack = () => {
         if (navigation.canGoBack()) {
             navigation.goBack();
@@ -49,27 +74,44 @@ export default function MisReportesScreen({ navigation }) {
                     <View style={{ width: 24 }} />
                 </View>
 
-                <FlatList
-                    data={MOCK_REPORTS}
-                    keyExtractor={(item) => item.id}
-                    showsVerticalScrollIndicator={false}
-                    contentContainerStyle={{ paddingBottom: spacing.lg }}
-                    ItemSeparatorComponent={() => <View style={{ height: spacing.sm }} />}
-                    ListEmptyComponent={
-                        <Text style={[typography.caption, { textAlign: 'center', marginTop: spacing.xl }]}>
-                            Aún no has reportado ninguna emergencia.
+                {loading ? (
+                    <View style={styles.centerContainer}>
+                        <ActivityIndicator size="large" color={colors.primary} />
+                        <Text style={[typography.caption, { marginTop: spacing.md }]}>
+                            Cargando tus reportes...
                         </Text>
-                    }
-                    renderItem={({ item }) => (
-                        <View style={[globalStyles.card, styles.reportCard]}>
-                            <View style={{ flex: 1 }}>
-                                <Text style={styles.reportTitle}>{item.tipo}</Text>
-                                <Text style={typography.caption}>{item.fecha}</Text>
+                    </View>
+                ) : (
+                    <FlatList
+                        data={reports}
+                        keyExtractor={(item) => item.id}
+                        showsVerticalScrollIndicator={false}
+                        contentContainerStyle={{ paddingBottom: spacing.lg }}
+                        ItemSeparatorComponent={() => <View style={{ height: spacing.sm }} />}
+                        refreshControl={
+                            <RefreshControl
+                                refreshing={refreshing}
+                                onRefresh={handleRefresh}
+                                colors={[colors.primary]}
+                                tintColor={colors.primary}
+                            />
+                        }
+                        ListEmptyComponent={
+                            <Text style={[typography.caption, { textAlign: 'center', marginTop: spacing.xl }]}>
+                                Aún no has reportado ninguna emergencia.
+                            </Text>
+                        }
+                        renderItem={({ item }) => (
+                            <View style={[globalStyles.card, styles.reportCard]}>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.reportTitle}>{item.tipo}</Text>
+                                    <Text style={typography.caption}>{item.fecha}</Text>
+                                </View>
+                                <StatusBadge estado={item.estado} />
                             </View>
-                            <StatusBadge estado={item.estado} />
-                        </View>
-                    )}
-                />
+                        )}
+                    />
+                )}
             </View>
         </SafeAreaView>
     );
@@ -82,6 +124,11 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         paddingTop: spacing.lg,
         paddingBottom: spacing.md,
+    },
+    centerContainer: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     reportCard: {
         flexDirection: 'row',

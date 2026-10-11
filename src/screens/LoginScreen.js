@@ -7,6 +7,7 @@ import {
     KeyboardAvoidingView,
     Platform,
     StyleSheet,
+    ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -78,6 +79,7 @@ export default function LoginScreen({ navigation }) {
                             value={dni}
                             onChangeText={handleDniChange}
                             textAlign="center"
+                            editable={!loading}
                         />
                         {!!error && <Text style={styles.errorText}>{error}</Text>}
 
@@ -85,13 +87,17 @@ export default function LoginScreen({ navigation }) {
                             style={[
                                 globalStyles.primaryButton,
                                 styles.button,
-                                !isValidDni && globalStyles.primaryButtonDisabled,
+                                (!isValidDni || loading) && globalStyles.primaryButtonDisabled,
                             ]}
                             activeOpacity={0.85}
-                            disabled={!isValidDni}
+                            disabled={!isValidDni || loading}
                             onPress={handleSubmit}
                         >
-                            <Text style={typography.buttonText}>Ingresar</Text>
+                            {loading ? (
+                                <ActivityIndicator size="small" color={colors.surface} />
+                            ) : (
+                                <Text style={typography.buttonText}>Ingresar</Text>
+                            )}
                         </TouchableOpacity>
                     </View>
                 </View>
