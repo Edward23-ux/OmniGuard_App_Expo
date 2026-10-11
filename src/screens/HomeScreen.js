@@ -1,83 +1,112 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Linking, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
-import { globalStyles, colors, spacing, typography, radius } from '../styles/globalStyles';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { globalStyles, colors, spacing, radius } from '../styles/globalStyles';
 import { useUser } from '../context/UserContext';
 
 export default function HomeScreen({ navigation }) {
     const { user } = useUser();
-    let initials = '?';
-    if (user?.datosReniec?.first_name && user?.datosReniec?.first_last_name) {
-        initials = `${user.datosReniec.first_name[0]}${user.datosReniec.first_last_name[0]}`.toUpperCase();
-    } else if (user?.nombre) {
-        const parts = user.nombre.trim().split(/\s+/);
-        if (parts.length >= 2) {
-            initials = `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-        } else if (parts.length === 1) {
-            initials = parts[0][0].toUpperCase();
-        }
-    }
+
+    // Obtener primer nombre del usuario formateado
+    const rawNombre =
+        user?.datosReniec?.first_name?.trim()?.split(/\s+/)[0] ||
+        user?.nombre?.trim()?.split(/\s+/)[0] ||
+        '';
+    const primerNombre = rawNombre
+        ? rawNombre.charAt(0).toUpperCase() + rawNombre.slice(1).toLowerCase()
+        : '';
+
+    const pregunta = primerNombre ? `¿Necesitas ayuda ${primerNombre}?` : '¿Necesitas ayuda?';
+
+    const llamarEmergencia = (numero, servicio) => {
+        const url = `tel:${numero}`;
+        Linking.canOpenURL(url)
+            .then((supported) => {
+                if (supported) {
+                    Linking.openURL(url);
+                } else {
+                    Alert.alert('Llamada rápida', `Llama directamente marcando al ${numero} (${servicio}).`);
+                }
+            })
+            .catch(() => {
+                Alert.alert('Llamada rápida', `Llama directamente marcando al ${numero} (${servicio}).`);
+            });
+    };
 
     return (
-        <SafeAreaView style={globalStyles.screen}>
-            <View style={globalStyles.container}>
-                {/* Header con perfil arriba a la derecha */}
-                <View style={globalStyles.header}>
-                    <View>
-                        <Text style={typography.h1}>¿Necesitas ayuda?</Text>
-                        <Text style={[typography.caption, { marginTop: 2 }]}>
-                            Reporta una emergencia o monitorea{'\n'}tu ciudad en tiempo real.
-                        </Text>
+        <SafeAreaView style={globalStyles.screen} edges={['top', 'left', 'right']}>
+            <View style={styles.container}>
+                {/* 1. Header con espaciado generoso e indicador de estado */}
+                <View style={styles.header}>
+                    <View style={styles.statusPill}>
+                        <View style={styles.statusDot} />
+                        <Text style={styles.statusText}>OmniGuard Activo · Central 116</Text>
                     </View>
 
+                    <Text style={styles.title}>{pregunta}</Text>
+                    <Text style={styles.subtitle}>
+                        Envía una alerta geolocalizada a los bomberos o contacta líneas de auxilio en tiempo real.
+                    </Text>
+                </View>
+
+                {/* 2. ThumbZone: Botón Principal de Emergencia ergonómico */}
+                <View style={styles.thumbZone}>
                     <TouchableOpacity
-                        style={globalStyles.avatar}
-                        activeOpacity={0.8}
-                        onPress={() => navigation.navigate('Profile')}
+                        style={styles.emergencyCard}
+                        activeOpacity={0.88}
+                        onPress={() => navigation.navigate('ReportEmergency')}
                     >
-                        <Text style={globalStyles.avatarText}>{initials}</Text>
+                        <View style={styles.iconCircle}>
+                            <MaterialCommunityIcons name="alert-octagon" size={46} color={colors.surface} />
+                        </View>
+                        <Text style={styles.emergencyTitle}>REPORTAR EMERGENCIA</Text>
+                        <Text style={styles.emergencySubtitle}>
+                            Toca aquí para enviar auxilio inmediato
+                        </Text>
                     </TouchableOpacity>
                 </View>
 
-                {/* Botón principal: Reportar Emergencia */}
-                <TouchableOpacity
-                    style={styles.emergencyCard}
-                    activeOpacity={0.9}
-                    onPress={() => navigation.navigate('ReportEmergency')}
-                >
-                    <MaterialCommunityIcons name="alert" size={44} color={colors.surface} />
-                    <Text style={styles.emergencyTitle}>REPORTAR EMERGENCIA</Text>
-                    <Text style={styles.emergencySubtitle}>Toca aquí si hay una emergencia</Text>
-                </TouchableOpacity>
+                {/* 3. Accesos de alta utilidad: Marcado rápido de auxilio */}
+                <View style={styles.supportSection}>
+                    <Text style={styles.supportLabel}>Llamadas directas de emergencia</Text>
+                    <View style={styles.supportRow}>
+                        <TouchableOpacity
+                            style={styles.callCard}
+                            activeOpacity={0.8}
+                            onPress={() => llamarEmergencia('116', 'Bomberos')}
+                        >
+                            <View style={[styles.callIconWrap, { backgroundColor: '#FEE4E2' }]}>
+                                <MaterialCommunityIcons name="fire-truck" size={24} color={colors.primary} />
+                            </View>
+                            <Text style={styles.callNumber}>116</Text>
+                            <Text style={styles.callName}>Bomberos</Text>
+                        </TouchableOpacity>
 
-                {/* Accesos: Mis Reportes / Monitor */}
-                <View style={styles.row}>
-                    <TouchableOpacity
-                        style={[globalStyles.card, styles.smallCard]}
-                        activeOpacity={0.85}
-                        onPress={() => navigation.navigate('MisReportes')}
-                    >
-                        <View style={styles.smallCardTop}>
-                            <Ionicons name="time-outline" size={22} color={colors.info} />
-                            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-                        </View>
-                        <Text style={styles.smallCardTitle}>Mis Reportes</Text>
-                        <Text style={typography.caption}>Ver historial</Text>
-                    </TouchableOpacity>
+                        <TouchableOpacity
+                            style={styles.callCard}
+                            activeOpacity={0.8}
+                            onPress={() => llamarEmergencia('105', 'Policía')}
+                        >
+                            <View style={[styles.callIconWrap, { backgroundColor: '#E0EAFF' }]}>
+                                <MaterialCommunityIcons name="shield-check" size={24} color="#3538CD" />
+                            </View>
+                            <Text style={styles.callNumber}>105</Text>
+                            <Text style={styles.callName}>Policía</Text>
+                        </TouchableOpacity>
 
-                    <TouchableOpacity
-                        style={[globalStyles.card, styles.smallCard]}
-                        activeOpacity={0.85}
-                        onPress={() => navigation.navigate('Monitor')}
-                    >
-                        <View style={styles.smallCardTop}>
-                            <Ionicons name="map-outline" size={22} color={colors.success} />
-                            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-                        </View>
-                        <Text style={styles.smallCardTitle}>Monitor</Text>
-                        <Text style={typography.caption}>Ver ciudad</Text>
-                    </TouchableOpacity>
+                        <TouchableOpacity
+                            style={styles.callCard}
+                            activeOpacity={0.8}
+                            onPress={() => llamarEmergencia('106', 'SAMU')}
+                        >
+                            <View style={[styles.callIconWrap, { backgroundColor: '#D1FADF' }]}>
+                                <MaterialCommunityIcons name="ambulance" size={24} color="#027A48" />
+                            </View>
+                            <Text style={styles.callNumber}>106</Text>
+                            <Text style={styles.callName}>SAMU</Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
             </View>
         </SafeAreaView>
@@ -85,48 +114,136 @@ export default function HomeScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        paddingHorizontal: spacing.lg,
+        justifyContent: 'space-between',
+        paddingTop: spacing.md,
+        paddingBottom: spacing.lg,
+    },
+    header: {
+        marginTop: spacing.sm,
+    },
+    statusPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        alignSelf: 'flex-start',
+        backgroundColor: 'rgba(18, 183, 106, 0.12)',
+        paddingHorizontal: spacing.md,
+        paddingVertical: 6,
+        borderRadius: radius.round,
+        marginBottom: spacing.md,
+    },
+    statusDot: {
+        width: 8,
+        height: 8,
+        borderRadius: radius.round,
+        backgroundColor: colors.success,
+        marginRight: spacing.xs + 2,
+    },
+    statusText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: colors.success,
+    },
+    title: {
+        fontSize: 27,
+        fontWeight: '800',
+        color: colors.text,
+        letterSpacing: -0.5,
+        marginBottom: spacing.sm,
+    },
+    subtitle: {
+        fontSize: 14,
+        color: colors.textMuted,
+        lineHeight: 21,
+    },
+    thumbZone: {
+        marginVertical: spacing.lg,
+    },
     emergencyCard: {
         backgroundColor: colors.primary,
-        borderRadius: radius.lg,
-        paddingVertical: spacing.xl,
+        borderRadius: radius.lg + 4,
+        paddingVertical: spacing.xl + 4,
+        paddingHorizontal: spacing.lg,
         alignItems: 'center',
         justifyContent: 'center',
-        marginTop: spacing.md,
         shadowColor: colors.primary,
-        shadowOpacity: 0.35,
-        shadowRadius: 16,
-        shadowOffset: { width: 0, height: 8 },
-        elevation: 5,
+        shadowOpacity: 0.38,
+        shadowRadius: 20,
+        shadowOffset: { width: 0, height: 10 },
+        elevation: 8,
+    },
+    iconCircle: {
+        width: 76,
+        height: 76,
+        borderRadius: radius.round,
+        backgroundColor: 'rgba(255, 255, 255, 0.2)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: spacing.md,
     },
     emergencyTitle: {
         color: colors.surface,
-        fontSize: 18,
-        fontWeight: '800',
-        marginTop: spacing.sm,
-        letterSpacing: 0.5,
+        fontSize: 19,
+        fontWeight: '900',
+        letterSpacing: 0.8,
+        textAlign: 'center',
     },
     emergencySubtitle: {
-        color: 'rgba(255,255,255,0.85)',
+        color: 'rgba(255,255,255,0.9)',
         fontSize: 13,
-        marginTop: 4,
+        fontWeight: '500',
+        marginTop: 6,
+        textAlign: 'center',
     },
-    row: {
+    supportSection: {
+        marginBottom: spacing.xs,
+    },
+    supportLabel: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: colors.textMuted,
+        textTransform: 'uppercase',
+        letterSpacing: 0.6,
+        marginBottom: spacing.sm + 2,
+    },
+    supportRow: {
         flexDirection: 'row',
         gap: spacing.md,
-        marginTop: spacing.md,
     },
-    smallCard: {
+    callCard: {
         flex: 1,
-    },
-    smallCardTop: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
+        backgroundColor: colors.surface,
+        borderRadius: radius.md,
+        paddingVertical: spacing.md,
+        paddingHorizontal: spacing.xs,
         alignItems: 'center',
-        marginBottom: spacing.sm,
+        borderWidth: 1,
+        borderColor: colors.border,
+        elevation: 1,
+        shadowColor: '#000',
+        shadowOpacity: 0.04,
+        shadowRadius: 6,
+        shadowOffset: { width: 0, height: 2 },
     },
-    smallCardTitle: {
-        fontSize: 15,
-        fontWeight: '700',
+    callIconWrap: {
+        width: 44,
+        height: 44,
+        borderRadius: radius.round,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: spacing.xs,
+    },
+    callNumber: {
+        fontSize: 16,
+        fontWeight: '800',
         color: colors.text,
+    },
+    callName: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: colors.textMuted,
+        marginTop: 1,
     },
 });

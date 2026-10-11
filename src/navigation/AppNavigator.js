@@ -2,11 +2,8 @@ import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import LoginScreen from '../screens/LoginScreen';
-import HomeScreen from '../screens/HomeScreen';
+import MainTabNavigator from './MainTabNavigator';
 import ReportEmergencyScreen from '../screens/ReportEmergencyScreen';
-import MisReportesScreen from '../screens/MisReportesScreen';
-import MonitorScreen from '../screens/MonitorScreen';
-import ProfileScreen from '../screens/ProfileScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -17,11 +14,14 @@ export default function AppNavigator() {
             screenOptions={{ headerShown: false }}
         >
             <Stack.Screen name="Login" component={LoginScreen} />
-            <Stack.Screen name="Home" component={HomeScreen} />
-            <Stack.Screen name="ReportEmergency" component={ReportEmergencyScreen} />
-            <Stack.Screen name="MisReportes" component={MisReportesScreen} />
-            <Stack.Screen name="Monitor" component={MonitorScreen} />
-            <Stack.Screen name="Profile" component={ProfileScreen} />
+            <Stack.Screen name="MainTabs" component={MainTabNavigator} />
+            <Stack.Screen
+                name="ReportEmergency"
+                component={ReportEmergencyScreen}
+                options={{
+                    animation: 'slide_from_bottom',
+                }}
+            />
         </Stack.Navigator>
     );
 }
