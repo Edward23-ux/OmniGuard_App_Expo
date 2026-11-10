@@ -8,6 +8,7 @@ import {
     Platform,
     StyleSheet,
     ActivityIndicator,
+    Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -26,6 +27,9 @@ export default function LoginScreen({ navigation }) {
         const onlyDigits = text.replace(/[^0-9]/g, '').slice(0, 8);
         setDni(onlyDigits);
         if (error) setError('');
+        if (onlyDigits.length === 8) {
+            Keyboard.dismiss();
+        }
     };
 
     const handleSubmit = async () => {

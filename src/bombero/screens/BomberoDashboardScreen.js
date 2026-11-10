@@ -16,41 +16,6 @@ import { useUser } from '../../context/UserContext';
 import { iconoTipo } from '../../screens/ReportEmergencyScreen';
 import { getBomberoEmergencies } from '../services/bomberoService';
 
-const STATUS_STACK_ROUTES = [
-    {
-        key: 'Pendiente',
-        routeName: 'BomberoPendientes',
-        label: 'Pendientes',
-        activeBg: '#FEF0C7',
-        activeBorder: '#FEC84B',
-        activeText: '#B54708',
-    },
-    {
-        key: 'En Proceso',
-        routeName: 'BomberoEnProceso',
-        label: 'En Proceso',
-        activeBg: '#D1E9FF',
-        activeBorder: '#84CAFF',
-        activeText: '#175CD3',
-    },
-    {
-        key: 'Culminado',
-        routeName: 'BomberoCulminados',
-        label: 'Culminados',
-        activeBg: '#D1FADF',
-        activeBorder: '#6CE9A6',
-        activeText: '#027A48',
-    },
-    {
-        key: 'Falsa Alarma',
-        routeName: 'BomberoFalsas',
-        label: 'Falsas',
-        activeBg: '#FEE4E2',
-        activeBorder: '#FDA29B',
-        activeText: '#EF3B4E',
-    },
-];
-
 export const STATUS_BADGE_MAP = {
     Pendiente: {
         label: 'PENDIENTE',
@@ -229,60 +194,19 @@ export default function BomberoDashboardScreen({ route, navigation }) {
                         </View>
                         <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
                     </TouchableOpacity>
+
+                    {/* Encabezado de la bandeja activa */}
+                    <View style={styles.sectionTitleRow}>
+                        <Text style={styles.sectionTitleText}>
+                            Bandeja: {currentStatusFilter}
+                        </Text>
+                        <Text style={styles.sectionCountText}>
+                            {filteredEmergencies.length} registro{filteredEmergencies.length === 1 ? '' : 's'}
+                        </Text>
+                    </View>
                 </View>
 
-                {/* 3. Barra uniforme de Estados de Emergencia (Stack Navigation) */}
-                <View style={styles.tabsRow}>
-                    {STATUS_STACK_ROUTES.map((tab) => {
-                        const isActive = currentStatusFilter === tab.key;
-                        const count = counts[tab.key] || 0;
-                        return (
-                            <TouchableOpacity
-                                key={tab.key}
-                                style={[
-                                    styles.tabButton,
-                                    isActive && {
-                                        backgroundColor: tab.activeBg,
-                                        borderColor: tab.activeBorder,
-                                    },
-                                ]}
-                                activeOpacity={0.8}
-                                onPress={() => handleNavigateStatus(tab.routeName)}
-                            >
-                                <View
-                                    style={[
-                                        styles.tabCountBadge,
-                                        isActive
-                                            ? { backgroundColor: tab.activeText }
-                                            : { backgroundColor: '#F2F4F7' },
-                                    ]}
-                                >
-                                    <Text
-                                        style={[
-                                            styles.tabCountText,
-                                            isActive
-                                                ? { color: colors.surface }
-                                                : { color: colors.textMuted },
-                                        ]}
-                                    >
-                                        {count}
-                                    </Text>
-                                </View>
-                                <Text
-                                    style={[
-                                        styles.tabButtonText,
-                                        isActive && { color: tab.activeText, fontWeight: '800' },
-                                    ]}
-                                    numberOfLines={1}
-                                >
-                                    {tab.label}
-                                </Text>
-                            </TouchableOpacity>
-                        );
-                    })}
-                </View>
-
-                {/* 4. Lista de Emergencias */}
+                {/* 3. Lista de Emergencias */}
                 {loading ? (
                     <View style={styles.centerBox}>
                         <ActivityIndicator size="large" color={colors.primary} />
@@ -575,45 +499,26 @@ const styles = StyleSheet.create({
         fontWeight: '700',
         color: colors.text,
     },
-    tabsRow: {
+    sectionTitleRow: {
         flexDirection: 'row',
-        paddingHorizontal: spacing.lg,
-        paddingVertical: spacing.sm + 2,
-        gap: 8,
-    },
-    tabButton: {
-        flex: 1,
         alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 9,
-        paddingHorizontal: 4,
-        borderRadius: radius.md,
-        backgroundColor: colors.surface,
-        borderWidth: 1,
-        borderColor: colors.border,
-        gap: 4,
+        justifyContent: 'space-between',
+        paddingTop: 4,
+        paddingBottom: 6,
     },
-    tabCountBadge: {
-        minWidth: 24,
-        height: 20,
-        borderRadius: radius.round,
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingHorizontal: 7,
-    },
-    tabCountText: {
-        fontSize: 11,
+    sectionTitleText: {
+        fontSize: 13.5,
         fontWeight: '800',
+        color: colors.text,
     },
-    tabButtonText: {
-        fontSize: 11.5,
+    sectionCountText: {
+        fontSize: 12,
         fontWeight: '600',
         color: colors.textMuted,
-        textAlign: 'center',
     },
     listContent: {
         paddingHorizontal: spacing.lg,
-        paddingBottom: spacing.lg,
+        paddingBottom: 95,
         gap: spacing.sm,
     },
     emergencyCard: {
