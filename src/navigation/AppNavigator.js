@@ -4,6 +4,8 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import LoginScreen from '../screens/LoginScreen';
 import MainTabNavigator from './MainTabNavigator';
 import ReportEmergencyScreen from '../screens/ReportEmergencyScreen';
+import BomberoLoginScreen from '../bombero/screens/BomberoLoginScreen';
+import BomberoStackNavigator from '../bombero/navigation/BomberoStackNavigator';
 
 const Stack = createNativeStackNavigator();
 
@@ -21,6 +23,17 @@ export default function AppNavigator() {
                 options={{
                     animation: 'slide_from_bottom',
                 }}
+            />
+            <Stack.Screen
+                name="BomberoLogin"
+                component={BomberoLoginScreen}
+                options={{
+                    animation: 'slide_from_right',
+                }}
+            />
+            <Stack.Screen
+                name="BomberoStack"
+                component={BomberoStackNavigator}
             />
         </Stack.Navigator>
     );

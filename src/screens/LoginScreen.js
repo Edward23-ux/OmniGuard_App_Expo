@@ -53,6 +53,18 @@ export default function LoginScreen({ navigation }) {
                 style={{ flex: 1 }}
                 behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             >
+                {/* Botón superior derecho "Soy bombero" */}
+                <View style={styles.topHeader}>
+                    <TouchableOpacity
+                        style={styles.bomberoButton}
+                        activeOpacity={0.82}
+                        onPress={() => navigation.navigate('BomberoLogin')}
+                    >
+                        <MaterialCommunityIcons name="fire-truck" size={18} color={colors.primary} />
+                        <Text style={styles.bomberoButtonText}>Soy bombero</Text>
+                    </TouchableOpacity>
+                </View>
+
                 <View style={styles.content}>
                     <View style={styles.logoWrap}>
                         <View style={styles.logoCircle}>
@@ -107,6 +119,33 @@ export default function LoginScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
+    topHeader: {
+        flexDirection: 'row',
+        justifyContent: 'flex-end',
+        paddingHorizontal: spacing.lg,
+        paddingTop: spacing.md,
+    },
+    bomberoButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: colors.surface,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 9,
+        borderRadius: radius.round,
+        borderWidth: 1.5,
+        borderColor: 'rgba(239, 59, 78, 0.35)',
+        shadowColor: colors.primary,
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+        shadowOffset: { width: 0, height: 3 },
+        elevation: 2,
+    },
+    bomberoButtonText: {
+        fontSize: 13.5,
+        fontWeight: '700',
+        color: colors.primary,
+    },
     content: {
         flex: 1,
         justifyContent: 'center',

@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Svg, { Path, Circle, Line } from 'react-native-svg';
 import { globalStyles, colors, spacing, typography, radius } from '../styles/globalStyles';
 import { saveNewReport } from '../services/reportStorage';
+import { useUser } from '../context/UserContext';
 
 export const iconoTipo = {
     'Incendio': (
@@ -75,6 +76,7 @@ const EMERGENCY_TYPES = [
 ];
 
 export default function ReportEmergencyScreen({ navigation }) {
+    const { user } = useUser();
     const [selected, setSelected] = useState(null);
 
     const handleReport = async () => {
@@ -82,7 +84,7 @@ export default function ReportEmergencyScreen({ navigation }) {
         if (!tipo) return;
 
         try {
-            await saveNewReport(tipo.label);
+            await saveNewReport(tipo.label, user);
             if (Platform.OS === 'web') {
                 alert(`Se registró tu emergencia de tipo "${tipo.label}". Un bombero revisará tu reporte.`);
                 navigation.navigate('MainTabs', { screen: 'MisReportes' });
