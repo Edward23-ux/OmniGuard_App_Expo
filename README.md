@@ -140,3 +140,8 @@ La consulta RENIEC se realiza desde el cliente móvil. Una credencial incluida e
 | `npm run ios` | Inicia Expo para iOS |
 | `npm run web` | Inicia la versión web |
 
+Secuendia para conservar dependencias de rama ios:
+git checkout test/ios-sdk-upgrade
+git merge rodrigo_sihues --no-commit --no-ff
+git checkout --ours package.json package-lock.json
+git commit -m "merge: sincronizar cambios desde rodrigo_sihues manteniendo SDK 58"
