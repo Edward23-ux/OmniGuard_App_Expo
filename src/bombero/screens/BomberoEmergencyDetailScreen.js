@@ -53,6 +53,11 @@ export default function BomberoEmergencyDetailScreen({ route, navigation }) {
     const shortId = String(emergency.id || '6cd64a46').slice(0, 8);
     const isIaApproved = emergency.iaValidacion?.estado !== 'Rechazado';
     const isClosedState = emergency.estado === 'Culminado' || emergency.estado === 'Falsa Alarma';
+    const sinUnidadAsignada = !emergency.unidadAsignadaId || emergency.estado === 'Pendiente';
+    const unidadOperativaAutorizada =
+        !sinUnidadAsignada &&
+        (Boolean(user?.unidad_asignada_id && emergency.unidadAsignadaId === user.unidad_asignada_id) ||
+            Boolean(user?.compania_id && emergency.companiaId === user.compania_id));
 
     const capturarFotoEnSitio = async (onCaptured) => {
         try {
@@ -319,16 +324,25 @@ export default function BomberoEmergencyDetailScreen({ route, navigation }) {
                         </View>
                     </View>
 
-                    {emergency.estado === 'Pendiente' && (
+                    {sinUnidadAsignada && (
                         <View style={styles.readOnlyBanner}>
                             <Ionicons name="information-circle-outline" size={20} color="#B54708" />
                             <Text style={styles.readOnlyBannerText}>
-                                Emergencia pendiente de despacho por la Central. Modo solo lectura hasta su asignación.
+                                Pendiente de despacho por Central. Modo solo lectura hasta la asignación de unidad.
                             </Text>
                         </View>
                     )}
 
-                    {emergency.estado === 'Asignado' && (
+                    {!sinUnidadAsignada && !unidadOperativaAutorizada && !isClosedState && (
+                        <View style={styles.readOnlyBanner}>
+                            <Ionicons name="information-circle-outline" size={20} color="#B54708" />
+                            <Text style={styles.readOnlyBannerText}>
+                                Emergencia asignada a otra unidad o compañía. Modo solo lectura.
+                            </Text>
+                        </View>
+                    )}
+
+                    {!sinUnidadAsignada && unidadOperativaAutorizada && emergency.estado === 'Asignado' && (
                         <>
                             <Text style={styles.actionSectionTitle}>ACCIONES DE ATENCIÓN:</Text>
                             <View style={styles.sequentialActionsRow}>
@@ -355,7 +369,7 @@ export default function BomberoEmergencyDetailScreen({ route, navigation }) {
                         </>
                     )}
 
-                    {emergency.estado === 'En Proceso' && (
+                    {!sinUnidadAsignada && unidadOperativaAutorizada && emergency.estado === 'En Proceso' && (
                         <>
                             <Text style={styles.actionSectionTitle}>ACCIONES EN CAMPO:</Text>
                             <View style={styles.sequentialActionsRow}>

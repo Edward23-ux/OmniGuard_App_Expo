@@ -99,6 +99,7 @@ export default function BomberoDashboardScreen({ route, navigation }) {
 
     useEffect(() => {
         const bomberoCompaniaId = user?.compania_id || user?.companiaId;
+        const bomberoUnidadId = user?.unidad_asignada_id || user?.unidadAsignadaId;
         const channel = supabase
             .channel(`emergencias-bombero-${Date.now()}`)
             .on(
@@ -109,7 +110,8 @@ export default function BomberoDashboardScreen({ route, navigation }) {
                     const tipoIncidente = payload?.new?.tipo || 'Emergencia';
                     dispararNotificacionLocal(
                         'Nueva Emergencia Reportada',
-                        'Se ha registrado un incidente de tipo ' + tipoIncidente
+                        'Se ha registrado un incidente de tipo ' + tipoIncidente,
+                        { role: 'bombero', emergencyId: payload?.new?.id }
                     ).catch((err) => {
                         console.warn('[BomberoDashboardScreen] Error al disparar notificación:', err);
                     });
@@ -121,16 +123,18 @@ export default function BomberoDashboardScreen({ route, navigation }) {
                 (payload) => {
                     const companiaEvento = payload?.new?.compania_asignada_id;
                     const nuevaUnidad = payload?.new?.unidad_asignada_id;
-                    const anteriorUnidad = payload?.old?.unidad_asignada_id;
-                    const esMiCompania = Boolean(bomberoCompaniaId && companiaEvento === bomberoCompaniaId);
+                    const anteriorUnidad = payload?.old?.unidad_asignada_id ?? null;
+                    const esMiCompaniaOUnidad =
+                        Boolean(bomberoCompaniaId && companiaEvento === bomberoCompaniaId) ||
+                        Boolean(bomberoUnidadId && nuevaUnidad === bomberoUnidadId);
                     const cambioUnidad = Boolean(nuevaUnidad) && nuevaUnidad !== anteriorUnidad;
 
-                    if (esMiCompania && cambioUnidad) {
+                    if (esMiCompaniaOUnidad && cambioUnidad) {
                         cargarDatos(true);
                         dispararNotificacionLocal(
                             'Despacho de Unidad Actualizado',
-                            `Se asigno o reasigno una unidad en la emergencia ${payload.new.tipo || 'activa'}.`,
-                            { emergencyId: payload.new.id }
+                            `Se asignó o reasignó una unidad en la emergencia ${payload.new.tipo || 'activa'}.`,
+                            { role: 'bombero', emergencyId: payload.new.id }
                         ).catch((err) => {
                             console.warn('[BomberoDashboardScreen] Error al disparar notificación:', err);
                         });
@@ -142,7 +146,7 @@ export default function BomberoDashboardScreen({ route, navigation }) {
         return () => {
             supabase.removeChannel(channel);
         };
-    }, [cargarDatos, user?.compania_id, user?.companiaId]);
+    }, [cargarDatos, user?.compania_id, user?.companiaId, user?.unidad_asignada_id, user?.unidadAsignadaId]);
 
     const handleRefresh = () => {
         setRefreshing(true);
@@ -221,9 +225,8 @@ export default function BomberoDashboardScreen({ route, navigation }) {
                         onPress={() => navigation.navigate('BomberoProfile')}
                     >
                         <View style={styles.profileAvatar}>
-                            <Ionicons name="person" size={15} color={colors.surface} />
+                            <Ionicons name="person" size={16} color={colors.surface} />
                         </View>
-                        <Text style={styles.profileButtonText}>Mi Perfil</Text>
                     </TouchableOpacity>
                 </View>
 
@@ -400,11 +403,11 @@ export default function BomberoDashboardScreen({ route, navigation }) {
                                         </Text>
                                     </View>
 
-                                    {item.estado === 'Pendiente' && (
+                                    {(!item.unidadAsignadaId || item.estado === 'Pendiente') && (
                                         <View style={styles.readOnlyTag}>
                                             <Ionicons name="eye-outline" size={12} color="#B54708" />
                                             <Text style={styles.readOnlyTagText}>
-                                                Sin asignar · Solo lectura
+                                                Pendiente de despacho por Central
                                             </Text>
                                         </View>
                                     )}
@@ -488,28 +491,22 @@ const styles = StyleSheet.create({
         marginTop: 1,
     },
     profileButton: {
-        flexDirection: 'row',
         alignItems: 'center',
-        gap: 6,
-        backgroundColor: colors.background,
-        paddingHorizontal: spacing.sm + 4,
-        paddingVertical: 7,
+        justifyContent: 'center',
+        width: 38,
+        height: 38,
         borderRadius: radius.round,
+        backgroundColor: colors.background,
         borderWidth: 1,
         borderColor: colors.border,
     },
     profileAvatar: {
-        width: 24,
-        height: 24,
+        width: 28,
+        height: 28,
         borderRadius: radius.round,
         backgroundColor: colors.primary,
         alignItems: 'center',
         justifyContent: 'center',
-    },
-    profileButtonText: {
-        fontSize: 12.5,
-        fontWeight: '700',
-        color: colors.text,
     },
     topMetricsWrap: {
         paddingHorizontal: spacing.lg,

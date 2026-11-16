@@ -21,12 +21,17 @@ Notifications.setNotificationHandler({
 export async function inicializarNotificacionesNativas() {
   try {
     if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync(ANDROID_CHANNEL_ID, {
-        name: 'Alertas de Emergencia OmniGuard',
-        importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 300, 200, 300],
-        lightColor: '#EF3B4E',
-      });
+      try {
+        await Notifications.setNotificationChannelAsync(ANDROID_CHANNEL_ID, {
+          name: 'Alertas OmniGuard',
+          importance: Notifications.AndroidImportance.MAX,
+          sound: undefined,
+        });
+      } catch (channelError) {
+        if (!isExpoGo) {
+          console.warn('[notificationService] Error al configurar canal Android:', channelError);
+        }
+      }
     }
 
     const { status: existingStatus } = await Notifications.getPermissionsAsync();

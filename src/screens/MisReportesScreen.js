@@ -7,10 +7,6 @@ import {
     StyleSheet,
     ActivityIndicator,
     RefreshControl,
-    Modal,
-    ScrollView,
-    Image,
-    Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -74,7 +70,6 @@ export default function MisReportesScreen({ navigation }) {
     const [reports, setReports] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
-    const [selectedReport, setSelectedReport] = useState(null);
 
     // 2. Consulta a Supabase filtrada por usuario_id con respaldo de caché por usuario
     const cargarReportes = useCallback(
@@ -181,7 +176,7 @@ export default function MisReportesScreen({ navigation }) {
         if (!user?.id) return;
 
         const channel = supabase
-            .channel(`emergencias-ciudadano-${user.id}`)
+            .channel(`emergencias-ciudadano-${user.id}-${Date.now()}`)
             .on(
                 'postgres_changes',
                 {
@@ -209,19 +204,10 @@ export default function MisReportesScreen({ navigation }) {
                                     : item
                             )
                         );
-                        setSelectedReport((prev) =>
-                            prev && String(prev.id) === updatedId
-                                ? {
-                                      ...prev,
-                                      estado: estadoNormalizado,
-                                      informeBombero: payload?.new?.informe_bombero ?? prev.informeBombero,
-                                      fotoCierreUrl: payload?.new?.foto_cierre_url ?? prev.fotoCierreUrl,
-                                  }
-                                : prev
-                        );
                         dispararNotificacionLocal(
                             'Actualización de Reporte',
-                            'Tu reporte pasó a estado: ' + estadoNormalizado
+                            'Tu reporte pasó a estado: ' + estadoNormalizado,
+                            { role: 'ciudadano', emergencyId: updatedId }
                         ).catch((err) => {
                             console.warn('[MisReportesScreen] Error al disparar notificación:', err);
                         });
@@ -291,7 +277,7 @@ export default function MisReportesScreen({ navigation }) {
                             <TouchableOpacity
                                 style={[globalStyles.card, styles.reportCard]}
                                 activeOpacity={0.78}
-                                onPress={() => setSelectedReport(item)}
+                                onPress={() => navigation.navigate('CitizenReportDetail', { reporte: item })}
                             >
                                 <View style={{ flex: 1, marginRight: spacing.sm }}>
                                     <Text style={styles.reportTitle}>{item.tipo}</Text>
@@ -303,101 +289,6 @@ export default function MisReportesScreen({ navigation }) {
                     />
                 )}
             </View>
-
-            <Modal
-                visible={Boolean(selectedReport)}
-                transparent
-                animationType="slide"
-                onRequestClose={() => setSelectedReport(null)}
-            >
-                <Pressable style={styles.modalBackdrop} onPress={() => setSelectedReport(null)}>
-                    <Pressable style={styles.modalCard} onPress={() => {}}>
-                        <View style={styles.modalHeader}>
-                            <Text style={typography.h2}>Detalle del Reporte</Text>
-                            <TouchableOpacity onPress={() => setSelectedReport(null)} hitSlop={10}>
-                                <Ionicons name="close" size={22} color={colors.textMuted} />
-                            </TouchableOpacity>
-                        </View>
-
-                        {selectedReport && (
-                            <ScrollView
-                                showsVerticalScrollIndicator={false}
-                                contentContainerStyle={styles.modalBody}
-                            >
-                                <View style={styles.detailTopRow}>
-                                    <Text style={styles.detailTitle}>{selectedReport.tipo}</Text>
-                                    <StatusBadge estado={selectedReport.estado} />
-                                </View>
-
-                                <View style={styles.detailSection}>
-                                    <Text style={styles.detailLabel}>Fecha y hora de creación</Text>
-                                    <Text style={styles.detailValue}>{selectedReport.fecha}</Text>
-                                </View>
-
-                                {Boolean(selectedReport.companiaAsignada) && (
-                                    <View style={styles.detailSection}>
-                                        <Text style={styles.detailLabel}>Compañía de bomberos asignada</Text>
-                                        <Text style={styles.detailValue}>{selectedReport.companiaAsignada}</Text>
-                                    </View>
-                                )}
-
-                                <View style={styles.detailSection}>
-                                    <Text style={styles.detailLabel}>Dirección aproximada reportada</Text>
-                                    <Text style={styles.detailValue}>
-                                        {selectedReport.direccion ||
-                                            (selectedReport.coordenadas
-                                                ? `Lat: ${Number(selectedReport.coordenadas.lat).toFixed(5)}, Lng: ${Number(
-                                                      selectedReport.coordenadas.lng
-                                                  ).toFixed(5)}`
-                                                : 'Ubicación GPS registrada')}
-                                    </Text>
-                                </View>
-
-                                <View style={styles.detailSection}>
-                                    <Text style={styles.detailLabel}>Descripción</Text>
-                                    <Text style={styles.detailValue}>
-                                        {selectedReport.descripcion ||
-                                            `Alerta de emergencia de tipo ${selectedReport.tipo} enviada desde la plataforma ciudadana.`}
-                                    </Text>
-                                </View>
-
-                                <View style={styles.detailSection}>
-                                    <Text style={styles.detailLabel}>Evidencia fotográfica enviada</Text>
-                                    {selectedReport.fotoUrl || selectedReport.imageUri ? (
-                                        <Image
-                                            source={{ uri: selectedReport.fotoUrl || selectedReport.imageUri }}
-                                            style={styles.evidenceImage}
-                                            resizeMode="cover"
-                                        />
-                                    ) : (
-                                        <Text style={typography.caption}>Sin fotografía adjunta</Text>
-                                    )}
-                                </View>
-
-                                {(selectedReport.estado === 'Culminado' ||
-                                    selectedReport.estado === 'Falsa Alarma') &&
-                                    Boolean(selectedReport.informeBombero || selectedReport.fotoCierreUrl) && (
-                                        <View style={styles.unitResponseBox}>
-                                            <Text style={styles.unitResponseTitle}>Respuesta de la Unidad</Text>
-                                            {Boolean(selectedReport.informeBombero) && (
-                                                <Text style={styles.detailValue}>
-                                                    {selectedReport.informeBombero}
-                                                </Text>
-                                            )}
-                                            {Boolean(selectedReport.fotoCierreUrl) && (
-                                                <Image
-                                                    source={{ uri: selectedReport.fotoCierreUrl }}
-                                                    style={[styles.evidenceImage, { marginTop: spacing.sm }]}
-                                                    resizeMode="cover"
-                                                />
-                                            )}
-                                        </View>
-                                    )}
-                            </ScrollView>
-                        )}
-                    </Pressable>
-                </Pressable>
-            </Modal>
         </SafeAreaView>
     );
 }
@@ -425,81 +316,5 @@ const styles = StyleSheet.create({
         fontWeight: '700',
         color: colors.text,
         marginBottom: 2,
-    },
-    modalBackdrop: {
-        flex: 1,
-        backgroundColor: 'rgba(16, 24, 40, 0.5)',
-        justifyContent: 'flex-end',
-    },
-    modalCard: {
-        backgroundColor: colors.surface,
-        borderTopLeftRadius: radius.lg,
-        borderTopRightRadius: radius.lg,
-        maxHeight: '85%',
-        paddingHorizontal: spacing.lg,
-        paddingTop: spacing.md,
-        paddingBottom: spacing.xl,
-        borderWidth: 1,
-        borderColor: colors.border,
-    },
-    modalHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingBottom: spacing.sm,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border,
-    },
-    modalBody: {
-        paddingTop: spacing.md,
-        paddingBottom: spacing.lg,
-        gap: spacing.md,
-    },
-    detailTopRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: spacing.sm,
-    },
-    detailTitle: {
-        fontSize: 18,
-        fontWeight: '800',
-        color: colors.text,
-        flex: 1,
-    },
-    detailSection: {
-        gap: 4,
-    },
-    detailLabel: {
-        fontSize: 12,
-        fontWeight: '700',
-        color: colors.textMuted,
-        textTransform: 'uppercase',
-        letterSpacing: 0.4,
-    },
-    detailValue: {
-        fontSize: 14,
-        color: colors.text,
-        lineHeight: 20,
-    },
-    evidenceImage: {
-        width: '100%',
-        height: 200,
-        borderRadius: radius.md,
-        backgroundColor: colors.background,
-        marginTop: 4,
-    },
-    unitResponseBox: {
-        backgroundColor: colors.background,
-        borderRadius: radius.md,
-        padding: spacing.md,
-        borderWidth: 1,
-        borderColor: colors.border,
-        gap: 6,
-    },
-    unitResponseTitle: {
-        fontSize: 13,
-        fontWeight: '800',
-        color: colors.text,
     },
 });

@@ -23,8 +23,8 @@ import { dispararNotificacionLocal } from '../services/notificationService';
 import { useUser } from '../context/UserContext';
 
 const DEFAULT_COORDS = {
-    latitud: -12.0532,
-    longitud: -77.0365,
+    latitud: -12.11568,
+    longitud: -77.02970,
 };
 
 export const iconoTipo = {
@@ -134,7 +134,12 @@ export default function ReportEmergencyScreen({ navigation }) {
                 setGpsStatusText('Ubicación GPS capturada');
             } catch (currentLocError) {
                 console.warn('[ReportEmergencyScreen] Error al obtener ubicación actual, intentando última conocida:', currentLocError);
-                const lastKnown = await Location.getLastKnownPositionAsync();
+                let lastKnown = null;
+                try {
+                    lastKnown = await Location.getLastKnownPositionAsync();
+                } catch (lastKnownError) {
+                    console.warn('[ReportEmergencyScreen] Error al obtener última ubicación conocida:', lastKnownError);
+                }
                 if (lastKnown?.coords) {
                     setCoords({
                         latitud: lastKnown.coords.latitude,

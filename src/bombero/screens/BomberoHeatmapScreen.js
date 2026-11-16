@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
     View,
     Text,
@@ -6,15 +6,31 @@ import {
     ScrollView,
     StyleSheet,
     Platform,
+    ActivityIndicator,
+    Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
+import * as Location from 'expo-location';
 import { globalStyles, colors, spacing, typography, radius } from '../../styles/globalStyles';
 import { useUser } from '../../context/UserContext';
 import { getBomberoEmergencies } from '../services/bomberoService';
 
 const DEFAULT_CENTER = { lat: -12.0464, lng: -77.0428 };
+const ESTADOS_ACTIVOS = new Set([
+    'pendiente',
+    'asignado',
+    'en_proceso',
+    'en proceso',
+    'en_camino',
+    'en_atencion',
+]);
+
+function esIncidenciaActiva(estado) {
+    const normalizado = String(estado || '').trim().toLowerCase();
+    return ESTADOS_ACTIVOS.has(normalizado);
+}
 
 function mapEmergencyToHeatZone(item) {
     const color =
@@ -45,18 +61,71 @@ function mapEmergencyToHeatZone(item) {
 
 export default function BomberoHeatmapScreen({ navigation }) {
     const { user } = useUser();
+    const webViewRef = useRef(null);
     const [emergencies, setEmergencies] = useState([]);
     const [selectedZoneId, setSelectedZoneId] = useState(null);
     const [isTouchingMap, setIsTouchingMap] = useState(false);
+    const [locating, setLocating] = useState(false);
+    const [myLocation, setMyLocation] = useState(null);
 
     useEffect(() => {
         getBomberoEmergencies(user?.compania_id, user?.unidad_asignada_id).then((list) => {
-            setEmergencies(list);
-            if (list.length > 0) {
-                setSelectedZoneId(list[0].id);
+            const activas = (list || []).filter((item) => esIncidenciaActiva(item.estado));
+            setEmergencies(activas);
+            if (activas.length > 0) {
+                setSelectedZoneId(activas[0].id);
             }
         });
     }, [user?.compania_id, user?.unidad_asignada_id]);
+
+    const handleMiUbicacion = async () => {
+        if (locating) return;
+        setLocating(true);
+        try {
+            const { status } = await Location.requestForegroundPermissionsAsync();
+            if (status !== 'granted') {
+                Alert.alert('Permiso requerido', 'Habilita el acceso a la ubicación para centrar el mapa en tu posición.');
+                return;
+            }
+
+            let coords = null;
+            try {
+                const current = await Location.getCurrentPositionAsync({
+                    accuracy: Location.Accuracy.Balanced,
+                });
+                coords = current?.coords || null;
+            } catch {
+                try {
+                    const lastKnown = await Location.getLastKnownPositionAsync();
+                    coords = lastKnown?.coords || null;
+                } catch {
+                    coords = null;
+                }
+            }
+
+            if (!coords) {
+                Alert.alert('Ubicación no disponible', 'No se pudo obtener tu posición GPS actual.');
+                return;
+            }
+
+            const nuevaPos = { lat: coords.latitude, lng: coords.longitude };
+            setMyLocation(nuevaPos);
+
+            if (Platform.OS !== 'web' && webViewRef.current) {
+                const js = `
+                    (function() {
+                        if (typeof window.setMyLocationMarker === 'function') {
+                            window.setMyLocationMarker(${nuevaPos.lat}, ${nuevaPos.lng});
+                        }
+                    })();
+                    true;
+                `;
+                webViewRef.current.injectJavaScript(js);
+            }
+        } finally {
+            setLocating(false);
+        }
+    };
 
     const heatZones = useMemo(() => emergencies.map(mapEmergencyToHeatZone), [emergencies]);
     const selectedZone = useMemo(
@@ -103,11 +172,31 @@ export default function BomberoHeatmapScreen({ navigation }) {
             }).addTo(map);
             circle.bindPopup('<b>' + z.zona + '</b><br/>' + z.reportes + ' alertas (' + z.nivel + ')');
         });
+        var myMarker = null;
+        window.setMyLocationMarker = function(lat, lng) {
+            if (myMarker) {
+                map.removeLayer(myMarker);
+            }
+            myMarker = L.circleMarker([lat, lng], {
+                radius: 9,
+                color: '#FFFFFF',
+                weight: 3,
+                fillColor: '#2563EB',
+                fillOpacity: 1
+            }).addTo(map);
+            myMarker.bindPopup('<b>Mi Ubicación</b>').openPopup();
+            map.setView([lat, lng], 15);
+        };
+
+        var initialMyLocation = ${JSON.stringify(myLocation)};
+        if (initialMyLocation && typeof initialMyLocation.lat === 'number' && typeof initialMyLocation.lng === 'number') {
+            window.setMyLocationMarker(initialMyLocation.lat, initialMyLocation.lng);
+        }
     </script>
 </body>
 </html>
         `,
-        [selectedZone, heatZones]
+        [selectedZone, heatZones, myLocation]
     );
 
     return (
@@ -160,6 +249,7 @@ export default function BomberoHeatmapScreen({ navigation }) {
                             />
                         ) : (
                             <WebView
+                                ref={webViewRef}
                                 originWhitelist={['*']}
                                 source={{ html: heatmapHtml }}
                                 style={{ flex: 1 }}
@@ -168,6 +258,19 @@ export default function BomberoHeatmapScreen({ navigation }) {
                                 domStorageEnabled={true}
                             />
                         )}
+
+                        <TouchableOpacity
+                            style={styles.myLocationFab}
+                            activeOpacity={0.85}
+                            onPress={handleMiUbicacion}
+                            disabled={locating}
+                        >
+                            {locating ? (
+                                <ActivityIndicator size="small" color={colors.surface} />
+                            ) : (
+                                <Ionicons name="locate" size={20} color={colors.surface} />
+                            )}
+                        </TouchableOpacity>
                     </View>
                 </View>
 
@@ -281,12 +384,29 @@ const styles = StyleSheet.create({
         color: colors.danger,
     },
     mapContainer: {
+        position: 'relative',
         height: 250,
         borderRadius: radius.md,
         overflow: 'hidden',
         borderWidth: 1,
         borderColor: colors.border,
         backgroundColor: '#EDF2F7',
+    },
+    myLocationFab: {
+        position: 'absolute',
+        right: 12,
+        bottom: 12,
+        width: 42,
+        height: 42,
+        borderRadius: radius.round,
+        backgroundColor: '#2563EB',
+        alignItems: 'center',
+        justifyContent: 'center',
+        shadowColor: '#101828',
+        shadowOpacity: 0.22,
+        shadowRadius: 6,
+        shadowOffset: { width: 0, height: 3 },
+        elevation: 5,
     },
     sectionHeader: {
         fontSize: 11.5,
