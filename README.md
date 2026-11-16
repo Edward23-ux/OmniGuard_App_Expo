@@ -1,145 +1,142 @@
 # OmniGuard Móvil
 
-Aplicación móvil orientada a la seguridad ciudadana y la optimización de los canales de respuesta del Cuerpo General de Bomberos Voluntarios del Perú (CGBVP) en Lima Metropolitana. 
+Aplicación móvil de OmniGuard para que una persona pueda identificarse con su DNI, reportar una emergencia, consultar sus reportes y revisar un monitor de emergencias.
 
-Actualmente, las centrales telefónicas de emergencia enfrentan una tasa superior al 70% de llamadas falsas o malintencionadas. Este anonimato genera movilizaciones innecesarias de unidades de rescate, desgaste de combustible y demoras críticas en la atención de siniestros reales con riesgo de vidas humanas.
+La aplicación está construida con **Expo SDK 54**, **React Native 0.81** y **React 19**. Utiliza React Navigation para las pantallas y AsyncStorage para conservar reportes en el dispositivo.
 
----
+## Funciones
 
-## Propósito del Proyecto
+- **Inicio de sesión:** solicita un DNI de ocho dígitos y consulta los datos mediante el servicio RENIEC de Decolecta.
+- **Inicio:** ofrece acceso al reporte de emergencia y a llamadas a líneas de ayuda.
+- **Reportar emergencia:** permite elegir el tipo de emergencia y guardar un reporte.
+- **Mis reportes:** presenta el historial guardado en el teléfono, con su fecha y estado.
+- **Monitor:** muestra una lista de emergencias de ejemplo. Aún no está conectado a un mapa ni a un servicio en tiempo real.
+- **Perfil:** muestra los datos de la sesión y permite cerrarla.
 
-El propósito fundamental de **OmniGuard Móvil** es erradicar el anonimato en el reporte de emergencias urbanas mediante un esquema de identidad digital verificada. La aplicación exige la validación del documento nacional de identidad (DNI) antes de habilitar el envío de alertas, garantizando la trazabilidad del ciudadano, la clasificación inmediata del incidente en un catálogo táctil de baja carga cognitiva y la reducción del desgaste operativo de los cuerpos de auxilio en Lima Metropolitana.
+> La consulta de DNI necesita conexión a Internet. El historial se guarda localmente en cada dispositivo y no se sincroniza con un servidor. El monitor y los reportes iniciales son datos de demostración.
 
----
+## Requisitos
 
-## Objetivos del Avance 2
+- Node.js **20.19.x o superior**, según el requisito de Expo SDK 54.
+- npm (incluido con Node.js).
+- Para ejecutar en un teléfono Android: Expo Go instalado y el teléfono y el computador en la misma red Wi-Fi.
+- Para compilar con EAS: una cuenta de Expo y acceso a Internet.
 
-Este avance técnico cubre:
+## Instalar y ejecutar en desarrollo
 
-1. **Navegación Híbrida (Stack y Tabs):** Estructuración combinada de un navegador en pila (`@react-navigation/native-stack`) para flujos secuenciales (login, reporte de emergencias) y una barra de pestañas persistente (`@react-navigation/bottom-tabs`) para la navegación global entre inicio, monitor, reportes y perfil.
-2. **Manejo de Estados y Eventos con Hooks:** Centralización de la sesión activa a través de Context API (`createContext`, `useContext`) y control del ciclo de vida y reactividad local mediante `useState` y `useEffect`.
-3. **Consumo de Servicios Asíncronos y Persistencia Local:** Consulta asíncrona (`fetch`) a servicio REST para la validación del DNI contra registros oficiales y almacenamiento local persistente con `@react-native-async-storage/async-storage` para la lectura, inicialización y guardado de incidentes bajo bloques de captura de errores (`try/catch`).
-4. **Calidad de Interfaz y Usabilidad (UI/UX):** Implementación de listas virtuales optimizadas (`FlatList`), componentes interactivos accesibles (`TouchableOpacity`), adaptación dinámica al teclado (`KeyboardAvoidingView`) y diseño consistente centralizado en `globalStyles.js`.
+Clona o descarga este repositorio y abre una terminal en la carpeta del proyecto, donde se encuentra `package.json`.
 
----
-
-## Dependencias del Proyecto
-
-El proyecto está construido sobre el ecosistema **Expo SDK 54**, ejecutando **React Native 0.81** y **React 19**:
-
-| Paquete / Dependencia | Versión | Propósito Arquitectónico |
-| :--- | :--- | :--- |
-| `expo` | `~54.0.0` | Núcleo del framework y APIs del dispositivo. |
-| `@react-navigation/native` | `^7.0.0` | Contenedor principal de rutas y contexto de navegación. |
-| `@react-navigation/native-stack` | `^7.0.0` | Enrutamiento en pila para flujos lineales y modales. |
-| `@react-navigation/bottom-tabs` | `^7.0.0` | Enrutamiento por pestañas inferiores persistentes. |
-| `react-native-screens` | `~4.4.0` | Optimización nativa de memoria para pantallas inactivas. |
-| `react-native-safe-area-context` | `~5.1.0` | Gestión de áreas seguras, muescas (*notches*) y barras del sistema. |
-| `@react-native-async-storage/async-storage` | `~2.1.0` | Motor de persistencia clave-valor en almacenamiento local. |
-
----
-
-## Instrucciones de Instalación y Ejecución
-
-### Prerrequisitos
-* **Node.js:** Versión 20.19.x o superior.
-* **Gestor de paquetes:** `npm` (integrado con Node.js).
-* **Entorno de ejecución:** Emulador Android configurado en **Android Studio** (API 33+) o dispositivo móvil físico con la aplicación **Expo Go**.
-
-### 1. Clonación del repositorio
 ```bash
-git clone [https://github.com/Edward23-ux/OmniGuard_App_Expo.git](https://github.com/Edward23-ux/OmniGuard_App_Expo.git)
-cd OmniGuard_App_Expo
-```
-
-### 2. Instalación de paquetes
-Ejecute la instalación de dependencias y verifique la compatibilidad con el SDK:
-```bash
-npm install
-npx expo install --check
-```
-
-### 3. Ejecución del proyecto
-
-#### Iniciar el servidor de desarrollo
-```bash
+npm ci
 npx expo start
 ```
 
-#### Ejecución directa en emulador Android:
-Con el emulador de Android Studio previamente abierto:
+Se mostrará un código QR en la terminal. Escanéalo con Expo Go en Android. También puedes iniciar directamente con:
+
 ```bash
 npm run android
 ```
-*(También puede presionar la tecla `a` en la consola interactiva de `npx expo start`).*
 
-#### Ejecución en dispositivo móvil físico:
-1. Conecte el dispositivo móvil a la misma red local (Wi-Fi) de la computadora.
-2. Abra la aplicación **Expo Go** en Android.
-3. Escanee el código QR desplegado en la terminal.
+Para abrir la versión web o iniciar el servidor orientado a iOS, están disponibles `npm run web` y `npm run ios`. La ejecución y compilación nativa de iOS requiere macOS y Xcode.
 
-#### Ejecución en navegador web:
+Si Expo informa de dependencias incompatibles, revisa el proyecto con `npx expo install --check`. La referencia de la versión usada está en la [documentación de Expo SDK 54](https://docs.expo.dev/versions/v54.0.0/).
+
+## Uso de la aplicación
+
+1. En **Iniciar sesión**, introduce un DNI de ocho dígitos. La consulta externa devuelve los datos del titular si la solicitud es válida.
+2. En **Inicio**, toca el botón de emergencia para abrir el formulario. También puedes usar los accesos de llamada disponibles en esa pantalla.
+3. Selecciona una categoría de emergencia y confirma el envío. La app guarda el reporte en el almacenamiento del teléfono y luego puedes verlo en **Mis reportes**.
+4. Usa la barra inferior para cambiar entre **Inicio**, **Monitor**, **Mis reportes** y **Perfil**.
+5. En **Perfil**, cierra la sesión para regresar a la pantalla de acceso.
+
+Al primer acceso a **Mis reportes**, la app inicializa el almacenamiento con registros de ejemplo. Los reportes nuevos se agregan a esa lista y quedan en el dispositivo; borrar los datos de la app puede eliminarlos.
+
+## Distribuir en Android
+
+Este repositorio ya incluye perfiles de EAS en `eas.json`:
+
+- `preview`: crea un **APK** para instalar directamente en dispositivos Android o compartir para pruebas internas.
+- `production`: crea un **Android App Bundle (AAB)** para Google Play y permite que EAS gestione el incremento de versión.
+
+### Preparar EAS
+
+Instala y autentica EAS CLI:
+
 ```bash
-npm run web
+npm install --global eas-cli
+eas login
 ```
 
----
+El proyecto ya tiene un identificador de EAS en `app.json`, así que en principio no hace falta volver a ejecutar `eas init`. Si EAS indica que el proyecto no está vinculado a tu cuenta, revisa `extra.eas.projectId` con la persona propietaria del proyecto antes de cambiarlo.
 
-## Estructura Modular del Repositorio
+El identificador Android configurado es `com.dev_edward.omniguard_app`. Debe ser único y mantenerse igual para futuras actualizaciones publicadas como la misma aplicación.
 
-Organización de código fuente bajo arquitectura por capas en `src/`:
+### Crear un APK para pruebas o instalación directa
+
+Desde la raíz del proyecto:
+
+```bash
+eas build --platform android --profile preview
+```
+
+Cuando termine la compilación, EAS proporcionará un enlace para descargar el APK. Descárgalo en el teléfono Android e instálalo; el sistema puede pedir autorización para instalar aplicaciones desde esa fuente. El perfil `preview` del proyecto está configurado para distribución interna y formato APK.
+
+### Crear un AAB para Google Play
+
+Genera el artefacto de producción:
+
+```bash
+eas build --platform android --profile production
+```
+
+El resultado es un archivo `.aab`. Google Play utiliza AAB para distribuir la aplicación optimizada a los dispositivos; no se instala directamente tocándolo como un APK.
+
+Para publicarlo:
+
+1. Crea la ficha de OmniGuard en Google Play Console y completa los requisitos de la cuenta de desarrollador y de la aplicación.
+2. Descarga el AAB desde el enlace de la compilación de EAS.
+3. Sube el AAB en la pista deseada de Play Console (por ejemplo, prueba interna) o configura las credenciales de Google Play y utiliza EAS Submit:
+
+   ```bash
+   eas submit --platform android --profile production
+   ```
+
+La primera carga automatizada requiere que la app exista en Play Console y que EAS tenga una clave de cuenta de servicio de Google Play configurada para el identificador de paquete. La subida no completa por sí sola la ficha ni la revisión de Google Play.
+
+Más detalles en las guías de Expo para [generar APK](https://docs.expo.dev/build-reference/apk/), [crear un build Android de producción](https://docs.expo.dev/tutorial/eas/android-production-build/) y [enviar a Google Play con EAS Submit](https://docs.expo.dev/submit/android/).
+
+## Estructura del proyecto
 
 ```text
-OmniGuard_App_Expo/
-├── assets/                     # Recursos gráficos (iconos de aplicación, splash screen)
+.
+├── App.js                       # Proveedores globales y contenedor de navegación
+├── index.js                     # Punto de entrada Expo
+├── app.json                     # Configuración de Expo y Android
+├── eas.json                     # Perfiles de compilación y envío
 ├── src/
 │   ├── context/
-│   │   └── UserContext.js      # Manejo global de la sesión del usuario (Context API)
+│   │   └── UserContext.js       # Sesión y consulta del DNI
 │   ├── navigation/
-│   │   ├── AppNavigator.js     # Navegador principal en pila (Native Stack)
-│   │   └── MainTabNavigator.js # Navegador de barra inferior (Bottom Tabs)
-│   ├── screens/                # Vistas principales de la aplicación
-│   │   ├── HomeScreen.js           # Panel central con botón crítico de auxilio
-│   │   ├── LoginScreen.js          # Captura, validación y consulta de DNI
-│   │   ├── MisReportesScreen.js    # Historial de emergencias con FlatList
-│   │   ├── MonitorScreen.js        # Alertas de incidentes activos por zona
-│   │   ├── ProfileScreen.js        # Datos del ciudadano y cierre de sesión
-│   │   └── ReportEmergencyScreen.js# Catálogo táctil de incidentes por categoría
+│   │   ├── AppNavigator.js      # Navegación principal tipo stack
+│   │   └── MainTabNavigator.js  # Pestañas inferiores
+│   ├── screens/                 # Pantallas de la app
 │   ├── services/
-│   │   └── reportStorage.js    # Capa de abstracción y persistencia (AsyncStorage)
+│   │   └── reportStorage.js     # Persistencia local de reportes
 │   └── styles/
-│       └── globalStyles.js     # Paleta de color, tipografía y tokens de diseño
-├── App.js                      # Inicialización raíz del árbol de componentes y Providers
-├── app.json                    # Manifiesto y metadatos de configuración Expo / Android
-├── eas.json                    # Configuración de compilación para perfiles EAS
-├── package.json                # Lista de dependencias, dependencias de desarrollo y scripts
-└── README.md                   # Documentación técnica de entrega
+│       └── globalStyles.js      # Colores, espacios y estilos compartidos
+└── assets/                      # Iconos, splash y favicon
 ```
 
----
+## Seguridad y configuración
 
-## Módulos y Flujo Operativo
+La consulta RENIEC se realiza desde el cliente móvil. Una credencial incluida en el código de una app puede extraerse del paquete distribuido; antes de una publicación real, se recomienda revocar cualquier clave expuesta y mover la consulta a un backend que proteja la credencial. No publiques claves, contraseñas ni archivos de credenciales en el repositorio.
 
-1. **Autenticación Ciudadana (`LoginScreen.js`):** El usuario ingresa su documento de identidad de 8 dígitos. Se envía una petición HTTP asíncrona mediante `fetch` al servicio RENIEC/Decolecta, registrando el usuario en el contexto global si la consulta es exitosa.
-2. **Panel Principal (`HomeScreen.js`):** Presenta el botón de reporte de emergencia con diseño de alto contraste visual para activación rápida bajo situaciones de estrés, junto a accesos directos a líneas de auxilio.
-3. **Catálogo de Incidentes (`ReportEmergencyScreen.js`):** Despliega una matriz de selección con categorías predeterminadas (incendio, accidente, fuga de gas, derrumbe, inundación, etc.), eliminando la necesidad de redacción manual en situaciones críticas.
-4. **Historial de Reportes (`MisReportesScreen.js`):** Muestra los reportes emitidos por el usuario en memoria virtualizada con `FlatList`. Los registros se leen y actualizan de forma asíncrona desde `reportStorage.js`, indicando el estado del reporte (`Pendiente`, `En Proceso`, `Culminado`, `Falsa Alarma`).
-5. **Monitor Urbano (`MonitorScreen.js`):** Presenta una lista de incidentes activos geolocalizados en distritos de la capital para conocimiento del entorno ciudadano.
-6. **Perfil de Usuario (`ProfileScreen.js`):** Despliega el nombre y número de documento del usuario autenticado persistido en el contexto, permitiendo la destrucción de la sesión activa y el retorno a la pantalla de acceso.
+## Comandos disponibles
 
----
+| Comando | Propósito |
+| --- | --- |
+| `npm start` | Inicia Expo |
+| `npm run android` | Inicia Expo y abre Android si hay dispositivo/emulador disponible |
+| `npm run ios` | Inicia Expo para iOS |
+| `npm run web` | Inicia la versión web |
 
-## Compilación y Pruebas en Android (APK)
-
-Para generar e instalar un instalador binario autónomo para pruebas sin requerir Expo Go:
-
-1. **Instalar el CLI de Expo Application Services:**
-   ```bash
-   npm install --global eas-cli
-   eas login
-   ```
-2. **Generar el binario APK:**
-   ```bash
-   eas build --platform android --profile preview
-   ```
-Al concluir la compilación en la nube de EAS, se obtiene un enlace directo para descargar el archivo `.apk` e instalarlo en cualquier dispositivo Android o arrastrarlo al emulador de Android Studio.
