@@ -219,46 +219,15 @@ export default function ReportEmergencyScreen({ navigation }) {
         }
     };
 
-    const registrarUsuarioYEnviarEmergencia = async (tipoLabel, fotoUrl) => {
-        const dniCiudadano = user?.dni || 'anon';
-        const nombreCiudadano = user?.nombre || 'CIUDADANO VERIFICADO RENIEC';
-
-        let usuarioId = null;
-
-        // 1. Verificar o registrar al ciudadano en tabla usuarios
-        const { data: usuarioExistente, error: userSelectError } = await supabase
-            .from('usuarios')
-            .select('id')
-            .eq('dni', dniCiudadano)
-            .maybeSingle();
-
-        if (userSelectError) {
-            throw userSelectError;
+    const enviarEmergenciaSupabase = async (tipoLabel, fotoUrl) => {
+        if (!user?.id) {
+            throw new Error('Sesión ciudadana no válida. Inicia sesión nuevamente.');
         }
 
-        if (usuarioExistente?.id) {
-            usuarioId = usuarioExistente.id;
-        } else {
-            const { data: nuevoUsuario, error: userInsertError } = await supabase
-                .from('usuarios')
-                .insert({
-                    dni: dniCiudadano,
-                    nombres: nombreCiudadano,
-                })
-                .select('id')
-                .single();
-
-            if (userInsertError) {
-                throw userInsertError;
-            }
-            usuarioId = nuevoUsuario?.id || null;
-        }
-
-        // 2. Insertar incidente en tabla emergencias
         const { data: nuevaEmergencia, error: emergencyError } = await supabase
             .from('emergencias')
             .insert({
-                usuario_id: usuarioId,
+                usuario_id: user.id,
                 tipo: tipoLabel,
                 latitud: coords.latitud,
                 longitud: coords.longitud,
@@ -279,6 +248,11 @@ export default function ReportEmergencyScreen({ navigation }) {
         const tipo = EMERGENCY_TYPES.find((t) => t.id === selected);
         if (!tipo || submitting) return;
 
+        if (!user?.id) {
+            Alert.alert('Sesión requerida', 'Debes iniciar sesión con tu DNI para reportar una emergencia.');
+            return;
+        }
+
         setSubmitting(true);
         let fotoUrl = null;
         let remoteId = null;
@@ -289,7 +263,7 @@ export default function ReportEmergencyScreen({ navigation }) {
                     fotoUrl = await subirEvidenciaFotografica(
                         photoUri,
                         'iniciales',
-                        user?.dni || 'anon'
+                        user.dni || user.id
                     );
                 } catch (uploadError) {
                     console.error('[ReportEmergencyScreen] Error al subir foto a Supabase:', uploadError);
@@ -297,13 +271,14 @@ export default function ReportEmergencyScreen({ navigation }) {
             }
 
             try {
-                remoteId = await registrarUsuarioYEnviarEmergencia(tipo.label, fotoUrl);
+                remoteId = await enviarEmergenciaSupabase(tipo.label, fotoUrl);
             } catch (supabaseError) {
                 console.error('[ReportEmergencyScreen] Error al sincronizar emergencia con Supabase (modo offline activo):', supabaseError);
             }
 
             await saveNewReport(tipo.label, user, {
                 id: remoteId,
+                usuarioId: user.id,
                 coordenadas: { lat: coords.latitud, lng: coords.longitud },
                 fotoUrl: fotoUrl || photoUri || null,
             });

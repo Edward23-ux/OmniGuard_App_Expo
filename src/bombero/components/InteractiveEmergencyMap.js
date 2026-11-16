@@ -106,7 +106,7 @@ export default function InteractiveEmergencyMap({
 <body>
     <div id="map"></div>
     <button class="recenter-btn" onclick="recenterMap()">
-        <span>🎯 Centrar</span>
+        <span>Centrar</span>
     </button>
     <div class="coords-bar">
         GPS: ${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)}

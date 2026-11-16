@@ -14,7 +14,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { globalStyles, colors, spacing, typography, radius } from '../../styles/globalStyles';
 import { useUser } from '../../context/UserContext';
 import { iconoTipo } from '../../screens/ReportEmergencyScreen';
-import { getBomberoEmergencies } from '../services/bomberoService';
+import { getBomberoEmergencies, getStationUnits } from '../services/bomberoService';
 import { supabase } from '../../services/supabaseClient';
 import { dispararNotificacionLocal } from '../../services/notificationService';
 
@@ -67,21 +67,29 @@ export default function BomberoDashboardScreen({ route, navigation }) {
     const currentStatusFilter = route.params?.statusFilter || 'Activas';
 
     const [emergencies, setEmergencies] = useState([]);
+    const [stationUnits, setStationUnits] = useState({
+        disponibles: user?.unidadesDisponibles ?? 0,
+        total: user?.unidadesTotales ?? 0,
+    });
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
 
     const cargarDatos = useCallback(async (isRefresh = false) => {
         if (!isRefresh) setLoading(true);
         try {
-            const list = await getBomberoEmergencies();
+            const [list, units] = await Promise.all([
+                getBomberoEmergencies(user?.compania_id, user?.unidad_asignada_id),
+                getStationUnits(user?.compania_id),
+            ]);
             setEmergencies(list);
+            setStationUnits(units);
         } catch (err) {
             console.error('Error cargando emergencias:', err);
         } finally {
             setLoading(false);
             setRefreshing(false);
         }
-    }, []);
+    }, [user?.compania_id, user?.unidad_asignada_id]);
 
     useFocusEffect(
         useCallback(() => {
@@ -90,6 +98,7 @@ export default function BomberoDashboardScreen({ route, navigation }) {
     );
 
     useEffect(() => {
+        const bomberoCompaniaId = user?.compania_id || user?.companiaId;
         const channel = supabase
             .channel(`emergencias-bombero-${Date.now()}`)
             .on(
@@ -106,12 +115,34 @@ export default function BomberoDashboardScreen({ route, navigation }) {
                     });
                 }
             )
+            .on(
+                'postgres_changes',
+                { event: 'UPDATE', schema: 'public', table: 'emergencias' },
+                (payload) => {
+                    const companiaEvento = payload?.new?.compania_asignada_id;
+                    const nuevaUnidad = payload?.new?.unidad_asignada_id;
+                    const anteriorUnidad = payload?.old?.unidad_asignada_id;
+                    const esMiCompania = Boolean(bomberoCompaniaId && companiaEvento === bomberoCompaniaId);
+                    const cambioUnidad = Boolean(nuevaUnidad) && nuevaUnidad !== anteriorUnidad;
+
+                    if (esMiCompania && cambioUnidad) {
+                        cargarDatos(true);
+                        dispararNotificacionLocal(
+                            'Despacho de Unidad Actualizado',
+                            `Se asigno o reasigno una unidad en la emergencia ${payload.new.tipo || 'activa'}.`,
+                            { emergencyId: payload.new.id }
+                        ).catch((err) => {
+                            console.warn('[BomberoDashboardScreen] Error al disparar notificación:', err);
+                        });
+                    }
+                }
+            )
             .subscribe();
 
         return () => {
             supabase.removeChannel(channel);
         };
-    }, [cargarDatos]);
+    }, [cargarDatos, user?.compania_id, user?.companiaId]);
 
     const handleRefresh = () => {
         setRefreshing(true);
@@ -138,8 +169,8 @@ export default function BomberoDashboardScreen({ route, navigation }) {
         };
     }, [emergencies, user]);
 
-    const totalUnidades = 3;
-    const unidadesDisponibles = Math.max(0, totalUnidades - counts['En Proceso']);
+    const totalUnidades = stationUnits.total;
+    const unidadesDisponibles = stationUnits.disponibles;
 
     const filteredEmergencies = useMemo(() => {
         if (currentStatusFilter === 'Activas' || currentStatusFilter === 'Pendiente') {
@@ -179,7 +210,7 @@ export default function BomberoDashboardScreen({ route, navigation }) {
                                 <View style={styles.onlineDot} />
                             </View>
                             <Text style={styles.stationSubtitle}>
-                                {user?.direccionEstacion || 'Cap. José A. Quiñonez N° 108'}
+                                {user?.direccionEstacion || 'Central de Bomberos'}
                             </Text>
                         </View>
                     </View>

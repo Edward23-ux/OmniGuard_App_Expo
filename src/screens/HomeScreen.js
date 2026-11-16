@@ -1,12 +1,88 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Linking, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
 import { globalStyles, colors, spacing, radius } from '../styles/globalStyles';
 import { useUser } from '../context/UserContext';
+import { supabase } from '../services/supabaseClient';
+
+function calcularDistanciaHaversineKm(lat1, lon1, lat2, lon2) {
+    const toRad = (deg) => (deg * Math.PI) / 180;
+    const radioTierraKm = 6371;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRad(lat1)) *
+            Math.cos(toRad(lat2)) *
+            Math.sin(dLon / 2) *
+            Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return radioTierraKm * c;
+}
 
 export default function HomeScreen({ navigation }) {
     const { user } = useUser();
+    const [centralCercana, setCentralCercana] = useState(null);
+
+    useEffect(() => {
+        let mounted = true;
+
+        const obtenerCentralCercana = async () => {
+            try {
+                const { status } = await Location.requestForegroundPermissionsAsync();
+                if (status !== 'granted') return;
+
+                let location = null;
+                try {
+                    location = await Location.getCurrentPositionAsync({
+                        accuracy: Location.Accuracy.Balanced,
+                    });
+                } catch {
+                    location = await Location.getLastKnownPositionAsync();
+                }
+
+                const lat = location?.coords?.latitude;
+                const lng = location?.coords?.longitude;
+                if (typeof lat !== 'number' || typeof lng !== 'number') return;
+
+                const { data: companias, error } = await supabase
+                    .from('companias_bomberos')
+                    .select('id, nombre, latitud, longitud')
+                    .eq('activa', true);
+
+                if (error || !Array.isArray(companias) || companias.length === 0) return;
+
+                let mejorCompania = null;
+                let menorDistancia = Infinity;
+
+                for (const compania of companias) {
+                    const cLat = Number(compania.latitud);
+                    const cLng = Number(compania.longitud);
+                    if (Number.isNaN(cLat) || Number.isNaN(cLng)) continue;
+
+                    const distancia = calcularDistanciaHaversineKm(lat, lng, cLat, cLng);
+                    if (distancia < menorDistancia) {
+                        menorDistancia = distancia;
+                        mejorCompania = compania;
+                    }
+                }
+
+                if (mounted && mejorCompania?.nombre) {
+                    setCentralCercana(mejorCompania.nombre);
+                }
+            } catch (err) {
+                console.warn('[HomeScreen] No se pudo calcular la central cercana:', err?.message || err);
+            }
+        };
+
+        obtenerCentralCercana();
+
+        return () => {
+            mounted = false;
+        };
+    }, []);
 
     // Obtener primer nombre del usuario formateado
     const rawNombre =
@@ -41,7 +117,9 @@ export default function HomeScreen({ navigation }) {
                 <View style={styles.header}>
                     <View style={styles.statusPill}>
                         <View style={styles.statusDot} />
-                        <Text style={styles.statusText}>OmniGuard Activo · Central 116</Text>
+                        <Text style={styles.statusText} numberOfLines={1}>
+                            OmniGuard Activo · {centralCercana || 'Buscando central cercana...'}
+                        </Text>
                     </View>
 
                     <Text style={styles.title}>{pregunta}</Text>

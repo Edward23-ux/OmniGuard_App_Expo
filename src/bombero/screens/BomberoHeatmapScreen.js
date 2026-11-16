@@ -11,52 +11,58 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
 import { globalStyles, colors, spacing, typography, radius } from '../../styles/globalStyles';
+import { useUser } from '../../context/UserContext';
 import { getBomberoEmergencies } from '../services/bomberoService';
 
-const HEAT_ZONES = [
-    {
-        id: 'z1',
-        zona: 'Santa Beatriz / Cercado de Lima',
-        nivel: 'Crítico',
-        color: colors.danger,
-        reportes: 4,
-        lat: -12.0695,
-        lng: -77.0358,
-        radius: 450,
-        principal: 'Incendio estructural y cables eléctricos',
-    },
-    {
-        id: 'z2',
-        zona: 'San Isidro / Vía Expresa',
-        nivel: 'Medio',
-        color: colors.warning,
-        reportes: 2,
-        lat: -12.0942,
-        lng: -77.0285,
-        radius: 380,
-        principal: 'Accidente Vehicular y Rescate',
-    },
-    {
-        id: 'z3',
-        zona: 'Jesús María / Lince',
-        nivel: 'Moderado',
-        color: colors.info,
-        reportes: 2,
-        lat: -12.0772,
-        lng: -77.0465,
-        radius: 340,
-        principal: 'Fuga de Gas GLP comercial',
-    },
-];
+const DEFAULT_CENTER = { lat: -12.0464, lng: -77.0428 };
+
+function mapEmergencyToHeatZone(item) {
+    const color =
+        item.estado === 'Pendiente' || item.estado === 'Asignado'
+            ? colors.danger
+            : item.estado === 'En Proceso'
+                ? colors.warning
+                : colors.info;
+    const nivel =
+        item.estado === 'Pendiente' || item.estado === 'Asignado'
+            ? 'Crítico'
+            : item.estado === 'En Proceso'
+                ? 'En Proceso'
+                : item.estado;
+
+    return {
+        id: item.id,
+        zona: item.direccion || item.tipo,
+        nivel,
+        color,
+        reportes: item.testigosCount || 1,
+        lat: Number(item.coordenadas?.lat ?? DEFAULT_CENTER.lat),
+        lng: Number(item.coordenadas?.lng ?? DEFAULT_CENTER.lng),
+        radius: 360,
+        principal: `${item.tipo} · ${item.fechaCorta || item.fecha}`,
+    };
+}
 
 export default function BomberoHeatmapScreen({ navigation }) {
+    const { user } = useUser();
     const [emergencies, setEmergencies] = useState([]);
-    const [selectedZone, setSelectedZone] = useState(HEAT_ZONES[0]);
+    const [selectedZoneId, setSelectedZoneId] = useState(null);
     const [isTouchingMap, setIsTouchingMap] = useState(false);
 
     useEffect(() => {
-        getBomberoEmergencies().then(setEmergencies);
-    }, []);
+        getBomberoEmergencies(user?.compania_id, user?.unidad_asignada_id).then((list) => {
+            setEmergencies(list);
+            if (list.length > 0) {
+                setSelectedZoneId(list[0].id);
+            }
+        });
+    }, [user?.compania_id, user?.unidad_asignada_id]);
+
+    const heatZones = useMemo(() => emergencies.map(mapEmergencyToHeatZone), [emergencies]);
+    const selectedZone = useMemo(
+        () => heatZones.find((z) => z.id === selectedZoneId) || heatZones[0] || DEFAULT_CENTER,
+        [heatZones, selectedZoneId]
+    );
 
     const heatmapHtml = useMemo(
         () => `
@@ -86,7 +92,7 @@ export default function BomberoHeatmapScreen({ navigation }) {
             attribution: '&copy; OpenStreetMap'
         }).addTo(map);
 
-        var zones = ${JSON.stringify(HEAT_ZONES)};
+        var zones = ${JSON.stringify(heatZones)};
         zones.forEach(function(z) {
             var circle = L.circle([z.lat, z.lng], {
                 color: z.color,
@@ -101,7 +107,7 @@ export default function BomberoHeatmapScreen({ navigation }) {
 </body>
 </html>
         `,
-        [selectedZone]
+        [selectedZone, heatZones]
     );
 
     return (
@@ -130,7 +136,7 @@ export default function BomberoHeatmapScreen({ navigation }) {
                         <View style={{ flex: 1 }}>
                             <Text style={styles.cardTitle}>Concentración de Emergencias</Text>
                             <Text style={typography.caption}>
-                                Jurisdicción Cía. Cap. José A. Quiñonez N° 108 ({emergencies.length} registros)
+                                {user?.compania || 'Central de Bomberos'} ({emergencies.length} registros)
                             </Text>
                         </View>
                         <View style={styles.liveBadge}>
@@ -167,32 +173,43 @@ export default function BomberoHeatmapScreen({ navigation }) {
 
                 {/* Zonas críticas detectadas */}
                 <Text style={styles.sectionHeader}>SECTORES MONITOREADOS (TOCA PARA ENFOCAR)</Text>
-                {HEAT_ZONES.map((zone) => {
-                    const isSelected = selectedZone.id === zone.id;
-                    return (
-                        <TouchableOpacity
-                            key={zone.id}
-                            style={[
-                                styles.zoneCard,
-                                isSelected && { borderColor: zone.color, borderWidth: 1.5 },
-                            ]}
-                            activeOpacity={0.8}
-                            onPress={() => setSelectedZone(zone)}
-                        >
-                            <View style={[styles.zoneIndicator, { backgroundColor: zone.color }]} />
-                            <View style={{ flex: 1 }}>
-                                <Text style={styles.zoneTitle}>{zone.zona}</Text>
-                                <Text style={styles.zoneSubtitle}>{zone.principal}</Text>
-                            </View>
-                            <View style={styles.zoneRight}>
-                                <Text style={[styles.zoneCount, { color: zone.color }]}>
-                                    {zone.reportes} alertas
-                                </Text>
-                                <Text style={styles.zoneLevel}>{zone.nivel}</Text>
-                            </View>
-                        </TouchableOpacity>
-                    );
-                })}
+                {heatZones.length === 0 ? (
+                    <View style={styles.zoneCard}>
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.zoneTitle}>Sin emergencias registradas</Text>
+                            <Text style={styles.zoneSubtitle}>
+                                No hay incidentes activos en la tabla emergencias para esta compañía.
+                            </Text>
+                        </View>
+                    </View>
+                ) : (
+                    heatZones.map((zone) => {
+                        const isSelected = selectedZone.id === zone.id;
+                        return (
+                            <TouchableOpacity
+                                key={zone.id}
+                                style={[
+                                    styles.zoneCard,
+                                    isSelected && { borderColor: zone.color, borderWidth: 1.5 },
+                                ]}
+                                activeOpacity={0.8}
+                                onPress={() => setSelectedZoneId(zone.id)}
+                            >
+                                <View style={[styles.zoneIndicator, { backgroundColor: zone.color }]} />
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.zoneTitle}>{zone.zona}</Text>
+                                    <Text style={styles.zoneSubtitle}>{zone.principal}</Text>
+                                </View>
+                                <View style={styles.zoneRight}>
+                                    <Text style={[styles.zoneCount, { color: zone.color }]}>
+                                        {zone.reportes} alertas
+                                    </Text>
+                                    <Text style={styles.zoneLevel}>{zone.nivel}</Text>
+                                </View>
+                            </TouchableOpacity>
+                        );
+                    })
+                )}
             </ScrollView>
         </SafeAreaView>
     );

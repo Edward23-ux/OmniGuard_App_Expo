@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
     View,
     Text,
@@ -9,27 +9,83 @@ import {
     StyleSheet,
     ActivityIndicator,
     ScrollView,
+    Modal,
+    Pressable,
+    Animated,
+    PanResponder,
+    useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { globalStyles, colors, spacing, typography, radius } from '../../styles/globalStyles';
 import { useUser } from '../../context/UserContext';
-import { authenticateBombero, DEMO_BOMBERO_CREDENTIALS } from '../services/bomberoService';
+import { authenticateBombero, getCuentasDemoBomberos } from '../services/bomberoService';
 
 export default function BomberoLoginScreen({ navigation }) {
     const { login } = useUser();
-    const [identificador, setIdentificador] = useState('B-746639');
-    const [password, setPassword] = useState('123456');
+    const [identificador, setIdentificador] = useState('');
+    const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+    const [showAccountsModal, setShowAccountsModal] = useState(false);
+    const [cuentasCentral, setCuentasCentral] = useState([]);
+    const [loadingCuentas, setLoadingCuentas] = useState(false);
+
+    const cargarCuentasCentral = useCallback(async () => {
+        setLoadingCuentas(true);
+        try {
+            const lista = await getCuentasDemoBomberos();
+            setCuentasCentral(lista);
+        } catch (err) {
+            console.warn('[BomberoLoginScreen] No se pudieron cargar cuentas de central:', err.message);
+            setCuentasCentral([]);
+        } finally {
+            setLoadingCuentas(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        cargarCuentasCentral();
+    }, [cargarCuentasCentral]);
+
+    const { width, height } = useWindowDimensions();
+    const pan = useRef(
+        new Animated.ValueXY({
+            x: Math.max(16, width / 2 - 26),
+            y: Math.max(80, height - 96),
+        })
+    ).current;
+
+    const panResponder = useRef(
+        PanResponder.create({
+            onStartShouldSetPanResponder: () => true,
+            onMoveShouldSetPanResponder: () => true,
+            onPanResponderGrant: () => {
+                pan.extractOffset();
+            },
+            onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], {
+                useNativeDriver: false,
+            }),
+            onPanResponderRelease: (_, gestureState) => {
+                pan.flattenOffset();
+                if (Math.abs(gestureState.dx) < 5 && Math.abs(gestureState.dy) < 5) {
+                    setShowAccountsModal(true);
+                    if (cuentasCentral.length === 0) {
+                        cargarCuentasCentral();
+                    }
+                }
+            },
+        })
+    ).current;
 
     const isFormValid = identificador.trim().length >= 3 && password.trim().length >= 4;
 
-    const handleSelectDemo = (cred) => {
-        setIdentificador(cred.usuario);
-        setPassword(cred.password);
+    const handleSelectCuenta = (cuenta) => {
+        setIdentificador(cuenta.placa_servicio || cuenta.email);
+        setPassword(cuenta.password_hash || '');
         setError('');
+        setShowAccountsModal(false);
     };
 
     const handleLogin = async () => {
@@ -57,53 +113,39 @@ export default function BomberoLoginScreen({ navigation }) {
                 style={{ flex: 1 }}
                 behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             >
+                {/* Barra superior para regresar a Login ciudadano */}
+                <View style={styles.topBar}>
+                    <TouchableOpacity
+                        style={styles.backButton}
+                        onPress={() => navigation.goBack()}
+                        activeOpacity={0.8}
+                    >
+                        <Ionicons name="arrow-back" size={20} color={colors.text} />
+                        <Text style={styles.backButtonText}>Acceso ciudadano</Text>
+                    </TouchableOpacity>
+                </View>
+
                 <ScrollView
                     contentContainerStyle={styles.scrollContent}
                     keyboardShouldPersistTaps="handled"
                     showsVerticalScrollIndicator={false}
                 >
-                    {/* Barra superior para regresar a Login ciudadano */}
-                    <View style={styles.topBar}>
-                        <TouchableOpacity
-                            style={styles.backButton}
-                            onPress={() => navigation.goBack()}
-                            activeOpacity={0.8}
-                        >
-                            <Ionicons name="arrow-back" size={20} color={colors.text} />
-                            <Text style={styles.backButtonText}>Acceso ciudadano</Text>
-                        </TouchableOpacity>
-
-                        <View style={styles.dbBadge}>
-                            <View style={styles.dbDot} />
-                            <Text style={styles.dbBadgeText}>Central 116</Text>
-                        </View>
-                    </View>
-
                     {/* Encabezado de Bomberos */}
                     <View style={styles.logoWrap}>
                         <View style={styles.logoCircle}>
                             <MaterialCommunityIcons name="fire-truck" size={40} color={colors.surface} />
                         </View>
                         <Text style={typography.h1}>Portal de Bomberos</Text>
-                        <Text style={[typography.caption, styles.subtitle]}>
-                            Gestión táctica de emergencias · Cía. Cap. José A. Quiñonez N° 108
-                        </Text>
                     </View>
 
                     {/* Formulario de credenciales */}
                     <View style={styles.formCard}>
-                        <Text style={typography.h2}>Credenciales de Operador</Text>
-                        <Text style={[typography.caption, { marginTop: 4, marginBottom: spacing.md }]}>
-                            Validación conectada a la tabla{' '}
-                            <Text style={styles.codeHighlight}>usuarios_dashboard</Text> de Supabase.
-                        </Text>
-
                         <Text style={styles.inputLabel}>Usuario o Correo Institucional</Text>
                         <View style={styles.inputContainer}>
                             <Ionicons name="person-outline" size={20} color={colors.textMuted} />
                             <TextInput
                                 style={styles.textInput}
-                                placeholder="ej. B-746639 o bombero116@cgbvp.gob.pe"
+                                placeholder="Placa de servicio o correo institucional"
                                 placeholderTextColor={colors.textMuted}
                                 autoCapitalize="none"
                                 autoCorrect={false}
@@ -169,40 +211,89 @@ export default function BomberoLoginScreen({ navigation }) {
                                 </View>
                             )}
                         </TouchableOpacity>
-
-                        {/* Tarjeta de acceso rápido con credenciales de prueba */}
-                        <View style={styles.demoSection}>
-                            <View style={styles.demoHeader}>
-                                <Ionicons name="key-outline" size={15} color={colors.primary} />
-                                <Text style={styles.demoTitle}>Credenciales de prueba (toca para rellenar)</Text>
-                            </View>
-                            <View style={styles.demoPillsRow}>
-                                {DEMO_BOMBERO_CREDENTIALS.map((cred) => {
-                                    const isSelected = identificador === cred.usuario && password === cred.password;
-                                    return (
-                                        <TouchableOpacity
-                                            key={cred.id}
-                                            style={[styles.demoChip, isSelected && styles.demoChipActive]}
-                                            activeOpacity={0.75}
-                                            onPress={() => handleSelectDemo(cred)}
-                                        >
-                                            <Text style={[styles.demoChipRole, isSelected && { color: colors.primary }]}>
-                                                {cred.rango}
-                                            </Text>
-                                            <Text style={styles.demoChipText}>
-                                                Usuario: <Text style={{ fontWeight: '700' }}>{cred.usuario}</Text>
-                                            </Text>
-                                            <Text style={styles.demoChipText}>
-                                                Clave: <Text style={{ fontWeight: '700' }}>{cred.password}</Text>
-                                            </Text>
-                                        </TouchableOpacity>
-                                    );
-                                })}
-                            </View>
-                        </View>
                     </View>
                 </ScrollView>
             </KeyboardAvoidingView>
+
+            <Animated.View
+                style={[
+                    styles.floatingAccountsBtn,
+                    { transform: pan.getTranslateTransform() },
+                ]}
+                {...panResponder.panHandlers}
+            >
+                <Ionicons name="key-outline" size={22} color={colors.surface} />
+            </Animated.View>
+
+            <Modal
+                visible={showAccountsModal}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setShowAccountsModal(false)}
+            >
+                <Pressable
+                    style={styles.modalBackdrop}
+                    onPress={() => setShowAccountsModal(false)}
+                >
+                    <Pressable style={styles.modalPanel} onPress={() => {}}>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>Cuentas de Central</Text>
+                            <TouchableOpacity
+                                onPress={() => setShowAccountsModal(false)}
+                                hitSlop={10}
+                            >
+                                <Ionicons name="close" size={20} color={colors.textMuted} />
+                            </TouchableOpacity>
+                        </View>
+
+                        <View style={styles.modalList}>
+                            {loadingCuentas ? (
+                                <View style={{ paddingVertical: spacing.lg, alignItems: 'center', gap: 8 }}>
+                                    <ActivityIndicator size="small" color={colors.primary} />
+                                    <Text style={styles.accountOptionSubtitle}>
+                                        Consultando centrales activas...
+                                    </Text>
+                                </View>
+                            ) : cuentasCentral.length === 0 ? (
+                                <Text style={[styles.accountOptionSubtitle, { textAlign: 'center', paddingVertical: spacing.md }]}>
+                                    No hay cuentas activas registradas en Supabase.
+                                </Text>
+                            ) : (
+                                cuentasCentral.map((cuenta) => {
+                                    const cuentaId = cuenta.placa_servicio || cuenta.email;
+                                    const isSelected =
+                                        identificador === cuentaId && password === (cuenta.password_hash || '');
+                                    return (
+                                        <TouchableOpacity
+                                            key={cuenta.id}
+                                            style={[styles.accountOption, isSelected && styles.accountOptionActive]}
+                                            activeOpacity={0.75}
+                                            onPress={() => handleSelectCuenta(cuenta)}
+                                        >
+                                            <View style={styles.accountOptionMain}>
+                                                <Text
+                                                    style={[
+                                                        styles.accountOptionTitle,
+                                                        isSelected && { color: colors.primary },
+                                                    ]}
+                                                >
+                                                    {cuenta.compania_nombre} · {cuenta.placa_servicio}
+                                                </Text>
+                                                <Text style={styles.accountOptionSubtitle}>{cuenta.email}</Text>
+                                            </View>
+                                            <Ionicons
+                                                name="chevron-forward"
+                                                size={18}
+                                                color={isSelected ? colors.primary : colors.textMuted}
+                                            />
+                                        </TouchableOpacity>
+                                    );
+                                })
+                            )}
+                        </View>
+                    </Pressable>
+                </Pressable>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -210,15 +301,16 @@ export default function BomberoLoginScreen({ navigation }) {
 const styles = StyleSheet.create({
     scrollContent: {
         flexGrow: 1,
+        justifyContent: 'center',
         paddingHorizontal: spacing.lg,
         paddingBottom: spacing.xl,
     },
     topBar: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
+        justifyContent: 'flex-start',
+        paddingHorizontal: spacing.lg,
         paddingTop: spacing.md,
-        marginBottom: spacing.md,
     },
     backButton: {
         flexDirection: 'row',
@@ -235,26 +327,6 @@ const styles = StyleSheet.create({
         fontSize: 13,
         fontWeight: '600',
         color: colors.text,
-    },
-    dbBadge: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: 'rgba(18, 183, 106, 0.12)',
-        paddingHorizontal: spacing.md,
-        paddingVertical: 6,
-        borderRadius: radius.round,
-    },
-    dbDot: {
-        width: 8,
-        height: 8,
-        borderRadius: radius.round,
-        backgroundColor: colors.success,
-        marginRight: 6,
-    },
-    dbBadgeText: {
-        fontSize: 12,
-        fontWeight: '700',
-        color: colors.success,
     },
     logoWrap: {
         alignItems: 'center',
@@ -274,20 +346,12 @@ const styles = StyleSheet.create({
         shadowOffset: { width: 0, height: 6 },
         elevation: 5,
     },
-    subtitle: {
-        marginTop: 4,
-        textAlign: 'center',
-    },
     formCard: {
         backgroundColor: colors.surface,
         borderRadius: radius.lg,
         padding: spacing.lg,
         borderWidth: 1,
         borderColor: colors.border,
-    },
-    codeHighlight: {
-        fontWeight: '700',
-        color: colors.text,
     },
     inputLabel: {
         fontSize: 13,
@@ -336,48 +400,82 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         gap: 8,
     },
-    demoSection: {
-        marginTop: spacing.lg,
-        paddingTop: spacing.md,
-        borderTopWidth: 1,
-        borderTopColor: colors.border,
+    floatingAccountsBtn: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        width: 52,
+        height: 52,
+        borderRadius: radius.round,
+        backgroundColor: colors.text,
+        alignItems: 'center',
+        justifyContent: 'center',
+        shadowColor: '#000',
+        shadowOpacity: 0.22,
+        shadowRadius: 8,
+        shadowOffset: { width: 0, height: 4 },
+        elevation: 6,
+        zIndex: 20,
     },
-    demoHeader: {
+    modalBackdrop: {
+        flex: 1,
+        backgroundColor: 'rgba(16, 24, 40, 0.45)',
+        justifyContent: 'flex-end',
+        padding: spacing.lg,
+    },
+    modalPanel: {
+        backgroundColor: colors.surface,
+        borderRadius: radius.lg,
+        padding: spacing.md,
+        borderWidth: 1,
+        borderColor: colors.border,
+        marginBottom: spacing.md,
+    },
+    modalHeader: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 6,
+        justifyContent: 'space-between',
         marginBottom: spacing.sm,
+        paddingBottom: spacing.xs,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
     },
-    demoTitle: {
-        fontSize: 12,
+    modalTitle: {
+        fontSize: 15,
         fontWeight: '700',
-        color: colors.textMuted,
+        color: colors.text,
     },
-    demoPillsRow: {
+    modalList: {
+        gap: spacing.xs,
+    },
+    accountOption: {
         flexDirection: 'row',
-        gap: spacing.sm,
-    },
-    demoChip: {
-        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'space-between',
         backgroundColor: colors.background,
         borderRadius: radius.md,
-        padding: spacing.sm + 2,
+        paddingHorizontal: spacing.md,
+        paddingVertical: spacing.sm + 2,
         borderWidth: 1,
         borderColor: colors.border,
     },
-    demoChipActive: {
+    accountOptionActive: {
         borderColor: colors.primary,
         backgroundColor: 'rgba(239, 59, 78, 0.06)',
     },
-    demoChipRole: {
-        fontSize: 11,
-        fontWeight: '800',
-        color: colors.text,
-        marginBottom: 2,
+    accountOptionMain: {
+        flex: 1,
+        marginRight: spacing.sm,
     },
-    demoChipText: {
-        fontSize: 11.5,
+    accountOptionTitle: {
+        fontSize: 13.5,
+        fontWeight: '700',
+        color: colors.text,
+    },
+    accountOptionSubtitle: {
+        fontSize: 12,
         color: colors.textMuted,
+        marginTop: 2,
     },
 });
 

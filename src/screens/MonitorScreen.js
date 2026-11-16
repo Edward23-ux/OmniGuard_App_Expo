@@ -1,47 +1,158 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import {
     View,
     Text,
     TouchableOpacity,
     StyleSheet,
     Platform,
+    Alert,
+    ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
+import * as Location from 'expo-location';
 import { globalStyles, colors, spacing, typography, radius } from '../styles/globalStyles';
+import { supabase } from '../services/supabaseClient';
 
-const HEAT_ZONES = [
-    {
-        id: 'z1',
-        zona: 'Zona Centro',
-        nivel: 'Alta incidencia',
-        color: colors.danger,
-        lat: -12.0695,
-        lng: -77.0358,
-        radius: 500,
-    },
-    {
-        id: 'z2',
-        zona: 'Zona Sur-Centro',
-        nivel: 'Incidencia media',
-        color: colors.warning,
-        lat: -12.0942,
-        lng: -77.0285,
-        radius: 420,
-    },
-    {
-        id: 'z3',
-        zona: 'Zona Oeste',
-        nivel: 'Incidencia moderada',
+function mapEstadoAZona(row) {
+    const estadoClave = String(row.estado || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, '_');
+
+    if (estadoClave === 'pendiente' || estadoClave === 'asignado') {
+        return {
+            color: colors.danger,
+            nivel: 'Alta incidencia',
+            radius: 450,
+        };
+    }
+    if (estadoClave === 'en_proceso' || estadoClave === 'en_camino' || estadoClave === 'en_atencion') {
+        return {
+            color: colors.warning,
+            nivel: 'Incidencia media',
+            radius: 400,
+        };
+    }
+    return {
         color: colors.info,
-        lat: -12.0772,
-        lng: -77.0465,
-        radius: 380,
-    },
-];
+        nivel: 'Incidencia moderada',
+        radius: 350,
+    };
+}
 
 export default function MonitorScreen({ navigation }) {
+    const [zones, setZones] = useState([]);
+    const [userCoords, setUserCoords] = useState(null);
+    const [locating, setLocating] = useState(false);
+    const webViewRef = useRef(null);
+    const iframeRef = useRef(null);
+
+    const cargarZonasReales = useCallback(async () => {
+        try {
+            const { data, error } = await supabase
+                .from('emergencias')
+                .select('id, tipo, estado, latitud, longitud')
+                .in('estado', [
+                    'pendiente',
+                    'asignado',
+                    'en_proceso',
+                    'culminado',
+                    'Pendiente',
+                    'Asignado',
+                    'En Proceso',
+                    'Culminado',
+                ]);
+
+            if (error) {
+                throw error;
+            }
+
+            const mapped = (data || [])
+                .filter((row) => row.latitud != null && row.longitud != null)
+                .map((row) => {
+                    const lat = Number(row.latitud);
+                    const lng = Number(row.longitud);
+                    if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
+                    const estilo = mapEstadoAZona(row);
+                    return {
+                        id: String(row.id),
+                        zona: row.tipo || 'Zona de Incidencia',
+                        nivel: estilo.nivel,
+                        color: estilo.color,
+                        lat,
+                        lng,
+                        radius: estilo.radius,
+                    };
+                })
+                .filter(Boolean);
+
+            setZones(mapped);
+        } catch (err) {
+            console.warn('[MonitorScreen] Error cargando zonas reales:', err.message);
+            setZones([]);
+        }
+    }, []);
+
+    useEffect(() => {
+        cargarZonasReales();
+
+        const channel = supabase
+            .channel(`monitor-emergencias-${Date.now()}`)
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'emergencias' },
+                () => {
+                    cargarZonasReales();
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [cargarZonasReales]);
+
+    const handleCenterMyLocation = async () => {
+        if (locating) return;
+        setLocating(true);
+        try {
+            const { status } = await Location.requestForegroundPermissionsAsync();
+            if (status !== 'granted') {
+                Alert.alert(
+                    'Permiso de ubicación requerido',
+                    'Habilita el acceso al GPS para centrar el mapa en tu ubicación actual.'
+                );
+                return;
+            }
+
+            const position = await Location.getCurrentPositionAsync({
+                accuracy: Location.Accuracy.Balanced,
+            });
+            const lat = position?.coords?.latitude;
+            const lng = position?.coords?.longitude;
+            if (typeof lat !== 'number' || typeof lng !== 'number') return;
+
+            setUserCoords({ lat, lng });
+
+            if (Platform.OS === 'web') {
+                iframeRef.current?.contentWindow?.postMessage(
+                    { type: 'CENTER_USER', lat, lng },
+                    '*'
+                );
+            } else {
+                const jsCode = `if (window.centrarEnUsuario) { window.centrarEnUsuario(${lat}, ${lng}); } true;`;
+                webViewRef.current?.injectJavaScript(jsCode);
+            }
+        } catch (err) {
+            console.warn('[MonitorScreen] No se pudo obtener la ubicación actual:', err.message);
+            Alert.alert('Ubicación no disponible', 'No se pudo obtener tu posición GPS actual.');
+        } finally {
+            setLocating(false);
+        }
+    };
+
     const handleBack = () => {
         if (navigation.canGoBack()) {
             navigation.goBack();
@@ -67,9 +178,12 @@ export default function MonitorScreen({ navigation }) {
 <body>
     <div id="map"></div>
     <script>
+        var initialCenter = ${JSON.stringify(
+            userCoords ? [userCoords.lat, userCoords.lng] : [-12.0805, -77.0365]
+        )};
         var map = L.map('map', {
-            center: [-12.0805, -77.0365],
-            zoom: 13,
+            center: initialCenter,
+            zoom: ${userCoords ? 15 : 13},
             zoomControl: true
         });
 
@@ -78,7 +192,7 @@ export default function MonitorScreen({ navigation }) {
             attribution: '&copy; OpenStreetMap'
         }).addTo(map);
 
-        var zones = ${JSON.stringify(HEAT_ZONES)};
+        var zones = ${JSON.stringify(zones)};
         zones.forEach(function(z) {
             var circle = L.circle([z.lat, z.lng], {
                 color: z.color,
@@ -89,11 +203,39 @@ export default function MonitorScreen({ navigation }) {
             }).addTo(map);
             circle.bindPopup('<b>' + z.zona + '</b><br/>' + z.nivel);
         });
+
+        var userMarker = null;
+        window.centrarEnUsuario = function(lat, lng) {
+            map.setView([lat, lng], 15, { animate: true });
+            if (userMarker) {
+                userMarker.setLatLng([lat, lng]);
+            } else {
+                userMarker = L.circleMarker([lat, lng], {
+                    radius: 9,
+                    color: '#FFFFFF',
+                    weight: 3,
+                    fillColor: '#2E90FA',
+                    fillOpacity: 1
+                }).addTo(map);
+                userMarker.bindPopup('Tu ubicación actual');
+            }
+        };
+
+        var savedUser = ${JSON.stringify(userCoords)};
+        if (savedUser) {
+            window.centrarEnUsuario(savedUser.lat, savedUser.lng);
+        }
+
+        window.addEventListener('message', function(event) {
+            if (event.data && event.data.type === 'CENTER_USER') {
+                window.centrarEnUsuario(event.data.lat, event.data.lng);
+            }
+        });
     </script>
 </body>
 </html>
         `,
-        []
+        [zones, userCoords]
     );
 
     return (
@@ -132,12 +274,14 @@ export default function MonitorScreen({ navigation }) {
                     <View style={styles.mapContainer}>
                         {Platform.OS === 'web' ? (
                             <iframe
+                                ref={iframeRef}
                                 title="Mapa de Calor Ciudadano"
                                 srcDoc={heatmapHtml}
                                 style={{ width: '100%', height: '100%', border: 'none' }}
                             />
                         ) : (
                             <WebView
+                                ref={webViewRef}
                                 originWhitelist={['*']}
                                 source={{ html: heatmapHtml }}
                                 style={{ flex: 1 }}
@@ -146,6 +290,19 @@ export default function MonitorScreen({ navigation }) {
                                 domStorageEnabled={true}
                             />
                         )}
+
+                        <TouchableOpacity
+                            style={styles.locateButton}
+                            activeOpacity={0.85}
+                            onPress={handleCenterMyLocation}
+                            disabled={locating}
+                        >
+                            {locating ? (
+                                <ActivityIndicator size="small" color={colors.primary} />
+                            ) : (
+                                <Ionicons name="locate" size={22} color={colors.primary} />
+                            )}
+                        </TouchableOpacity>
                     </View>
 
                     {/* Leyenda del mapa de calor */}
@@ -236,11 +393,31 @@ const styles = StyleSheet.create({
     },
     mapContainer: {
         flex: 1,
+        position: 'relative',
         borderRadius: radius.md,
         overflow: 'hidden',
         borderWidth: 1,
         borderColor: colors.border,
         backgroundColor: '#EDF2F7',
+    },
+    locateButton: {
+        position: 'absolute',
+        bottom: 14,
+        right: 14,
+        width: 44,
+        height: 44,
+        borderRadius: radius.round,
+        backgroundColor: colors.surface,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: colors.border,
+        shadowColor: '#000',
+        shadowOpacity: 0.16,
+        shadowRadius: 6,
+        shadowOffset: { width: 0, height: 3 },
+        elevation: 5,
+        zIndex: 10,
     },
     legendRow: {
         flexDirection: 'row',

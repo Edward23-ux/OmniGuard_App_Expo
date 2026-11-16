@@ -11,16 +11,22 @@ export default function BomberoProfileScreen({ navigation }) {
     const [stats, setStats] = useState({ total: 0, atendidas: 0, enProceso: 0 });
 
     useEffect(() => {
-        getBomberoEmergencies().then((list) => {
+        getBomberoEmergencies(user?.compania_id, user?.unidad_asignada_id).then((list) => {
             setStats({
                 total: list.length,
                 atendidas: list.filter((e) => e.estado === 'Culminado').length,
                 enProceso: list.filter((e) => e.estado === 'En Proceso').length,
             });
         });
-    }, []);
+    }, [user?.compania_id, user?.unidad_asignada_id]);
 
-    const nombre = user?.nombre || 'Cap. Carlos Mendoza Vargas';
+    const nombre = user?.nombre || 'Bombero Operador';
+    const estaActivo = user?.activo !== false;
+    const companiaNombre =
+        user?.compania_nombre ||
+        user?.compania ||
+        user?.companias_bomberos?.nombre ||
+        'Central de Bomberos';
     const parts = nombre.replace(/^(Cap\.|Tnte\.|Subtnte\.)\s*/i, '').trim().split(/\s+/);
     const initials =
         parts.length >= 2
@@ -65,12 +71,14 @@ export default function BomberoProfileScreen({ navigation }) {
                         {nombre}
                     </Text>
                     <Text style={styles.rankBadge}>
-                        {user?.rango || 'Capitán CBP'} · {user?.codigoBombero || 'CBP-10842'}
+                        {user?.rango || 'Efectivo CBP'} · {user?.codigoBombero || 'Sin placa'}
                     </Text>
 
-                    <View style={styles.activeStatusPill}>
-                        <View style={styles.activeDot} />
-                        <Text style={styles.activeStatusText}>En Servicio Activo · Central 116</Text>
+                    <View style={[styles.activeStatusPill, !estaActivo && styles.inactiveStatusPill]}>
+                        <View style={[styles.activeDot, !estaActivo && styles.inactiveDot]} />
+                        <Text style={[styles.activeStatusText, !estaActivo && styles.inactiveStatusText]}>
+                            {`${estaActivo ? 'En Servicio Activo' : 'Fuera de Servicio'} · ${companiaNombre}`}
+                        </Text>
                     </View>
                 </View>
 
@@ -90,9 +98,9 @@ export default function BomberoProfileScreen({ navigation }) {
                     </View>
                 </View>
 
-                {/* Información Institucional y de Cuenta (usuarios_dashboard) */}
+                {/* Información Institucional y de Cuenta */}
                 <View style={[globalStyles.card, styles.infoCard]}>
-                    <Text style={styles.sectionTitle}>DATOS DE OPERADOR (USUARIOS_DASHBOARD)</Text>
+                    <Text style={styles.sectionTitle}>DATOS DE OPERADOR</Text>
 
                     <View style={styles.infoRow}>
                         <View style={styles.infoIconBox}>
@@ -101,7 +109,7 @@ export default function BomberoProfileScreen({ navigation }) {
                         <View style={{ flex: 1 }}>
                             <Text style={typography.caption}>Usuario / Correo</Text>
                             <Text style={styles.infoValue}>
-                                {user?.usuario || 'bombero116'} ({user?.correo || 'bombero@omniguard.pe'})
+                                {user?.usuario || 'Sin usuario'} ({user?.correo || 'Sin correo'})
                             </Text>
                         </View>
                     </View>
@@ -115,10 +123,10 @@ export default function BomberoProfileScreen({ navigation }) {
                         <View style={{ flex: 1 }}>
                             <Text style={typography.caption}>Compañía Asignada</Text>
                             <Text style={styles.infoValue}>
-                                {user?.compania || 'Compañía Cap. José A. Quiñonez N° 108'}
+                                {user?.compania || 'Central de Bomberos'}
                             </Text>
                             <Text style={styles.subInfoText}>
-                                {user?.direccionEstacion || 'Cap. José A. Quiñonez N° 108, Lima'}
+                                {user?.direccionEstacion || 'Central de Bomberos'}
                             </Text>
                         </View>
                     </View>
@@ -126,27 +134,27 @@ export default function BomberoProfileScreen({ navigation }) {
                     <View style={styles.divider} />
 
                     <View style={styles.infoRow}>
-                        <View style={styles.infoIconBox}>
-                            <Ionicons name="time-outline" size={20} color={colors.primary} />
+                        <View
+                            style={[
+                                styles.infoIconBox,
+                                { backgroundColor: estaActivo ? '#ECFDF3' : '#F2F4F7' },
+                            ]}
+                        >
+                            <Ionicons
+                                name="time-outline"
+                                size={20}
+                                color={estaActivo ? colors.success : colors.textMuted}
+                            />
                         </View>
                         <View style={{ flex: 1 }}>
                             <Text style={typography.caption}>Turno Operativo</Text>
-                            <Text style={styles.infoValue}>
-                                {user?.turno || 'Guardia Diurna / Nocturna (24h)'}
-                            </Text>
-                        </View>
-                    </View>
-
-                    <View style={styles.divider} />
-
-                    <View style={styles.infoRow}>
-                        <View style={[styles.infoIconBox, { backgroundColor: '#ECFDF3' }]}>
-                            <Ionicons name="checkmark-circle" size={20} color={colors.success} />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                            <Text style={typography.caption}>Tabla de Autenticación</Text>
-                            <Text style={[styles.infoValue, { color: colors.success }]}>
-                                Validado · Supabase (usuarios_dashboard)
+                            <Text
+                                style={[
+                                    styles.infoValue,
+                                    { color: estaActivo ? colors.success : colors.textMuted },
+                                ]}
+                            >
+                                {estaActivo ? 'En Servicio Activo' : 'Inactivo / Fuera de Turno'}
                             </Text>
                         </View>
                     </View>
@@ -248,6 +256,15 @@ const styles = StyleSheet.create({
         fontSize: 12,
         fontWeight: '700',
         color: colors.success,
+    },
+    inactiveStatusPill: {
+        backgroundColor: 'rgba(102, 112, 133, 0.12)',
+    },
+    inactiveDot: {
+        backgroundColor: colors.textMuted,
+    },
+    inactiveStatusText: {
+        color: colors.textMuted,
     },
     statsRow: {
         flexDirection: 'row',
