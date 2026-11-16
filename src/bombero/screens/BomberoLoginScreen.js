@@ -18,7 +18,7 @@ import { authenticateBombero, DEMO_BOMBERO_CREDENTIALS } from '../services/bombe
 
 export default function BomberoLoginScreen({ navigation }) {
     const { login } = useUser();
-    const [identificador, setIdentificador] = useState('bombero116');
+    const [identificador, setIdentificador] = useState('B-746639');
     const [password, setPassword] = useState('123456');
     const [showPassword, setShowPassword] = useState(false);
     const [error, setError] = useState('');
@@ -103,7 +103,7 @@ export default function BomberoLoginScreen({ navigation }) {
                             <Ionicons name="person-outline" size={20} color={colors.textMuted} />
                             <TextInput
                                 style={styles.textInput}
-                                placeholder="ej. bombero116 o bombero@omniguard.pe"
+                                placeholder="ej. B-746639 o bombero116@cgbvp.gob.pe"
                                 placeholderTextColor={colors.textMuted}
                                 autoCapitalize="none"
                                 autoCorrect={false}

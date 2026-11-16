@@ -1,10 +1,12 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { globalStyles, colors, spacing, typography } from '../styles/globalStyles';
 import { getStoredReports } from '../services/reportStorage';
+import { supabase } from '../services/supabaseClient';
+import { dispararNotificacionLocal } from '../services/notificationService';
 
 const STATUS_STYLES = {
     Pendiente: { bg: '#FEF0C7', color: '#B54708' },
@@ -13,11 +15,24 @@ const STATUS_STYLES = {
     'Falsa Alarma': { bg: '#FEE4E2', color: '#B42318' },
 };
 
+function normalizarEstado(estado) {
+    if (!estado) return 'Pendiente';
+    const clave = String(estado).trim().toLowerCase().replace(/\s+/g, '_');
+    const mapa = {
+        pendiente: 'Pendiente',
+        en_proceso: 'En Proceso',
+        culminado: 'Culminado',
+        falsa_alarma: 'Falsa Alarma',
+    };
+    return mapa[clave] || estado;
+}
+
 function StatusBadge({ estado }) {
-    const style = STATUS_STYLES[estado] ?? STATUS_STYLES.Pendiente;
+    const estadoNormalizado = normalizarEstado(estado);
+    const style = STATUS_STYLES[estadoNormalizado] ?? STATUS_STYLES.Pendiente;
     return (
         <View style={[globalStyles.badge, { backgroundColor: style.bg }]}>
-            <Text style={[globalStyles.badgeText, { color: style.color }]}>{estado}</Text>
+            <Text style={[globalStyles.badgeText, { color: style.color }]}>{estadoNormalizado}</Text>
         </View>
     );
 }
@@ -33,7 +48,12 @@ export default function MisReportesScreen({ navigation }) {
         if (!isRefresh) setLoading(true);
         try {
             const data = await getStoredReports();
-            setReports(data);
+            setReports(
+                (data || []).map((item) => ({
+                    ...item,
+                    estado: normalizarEstado(item.estado),
+                }))
+            );
         } catch (error) {
             console.error('Error al cargar reportes:', error);
         } finally {
@@ -48,6 +68,39 @@ export default function MisReportesScreen({ navigation }) {
             cargarReportes();
         }, [cargarReportes])
     );
+
+    // 4. Suscripción Realtime a actualizaciones de estado en emergencias
+    useEffect(() => {
+        const channel = supabase
+            .channel(`emergencias-ciudadano-${Date.now()}`)
+            .on(
+                'postgres_changes',
+                { event: 'UPDATE', schema: 'public', table: 'emergencias' },
+                (payload) => {
+                    const updatedId = String(payload?.new?.id || '');
+                    const rawEstado = payload?.new?.estado;
+                    if (rawEstado) {
+                        const estadoNormalizado = normalizarEstado(rawEstado);
+                        setReports((prev) =>
+                            prev.map((item) =>
+                                String(item.id) === updatedId ? { ...item, estado: estadoNormalizado } : item
+                            )
+                        );
+                        dispararNotificacionLocal(
+                            'Actualización de Reporte',
+                            'Tu reporte pasó a estado: ' + estadoNormalizado
+                        ).catch((err) => {
+                            console.warn('[MisReportesScreen] Error al disparar notificación:', err);
+                        });
+                    }
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, []);
 
     // 4. Evento de usuario: Pull-to-refresh
     const handleRefresh = () => {

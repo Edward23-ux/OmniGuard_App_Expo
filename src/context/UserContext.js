@@ -3,7 +3,7 @@ import React, { createContext, useContext, useState, useMemo } from 'react';
 const UserContext = createContext(null);
 
 
-const RENIEC_API_KEY = 'sk_17679.mlnSmvh3Zdgj0PxowNACXExua4CQrRbO';
+const RENIEC_API_KEY = process.env.EXPO_PUBLIC_RENIEC_API_KEY || '';
 
 export function UserProvider({ children }) {
     const [user, setUser] = useState(null);

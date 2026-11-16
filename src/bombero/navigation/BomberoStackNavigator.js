@@ -133,8 +133,8 @@ function BomberoBottomTabs() {
             <Tab.Screen
                 name="BomberoPendientes"
                 component={BomberoDashboardScreen}
-                initialParams={{ statusFilter: 'Pendiente' }}
-                options={{ tabBarLabel: 'Pendientes' }}
+                initialParams={{ statusFilter: 'Activas' }}
+                options={{ tabBarLabel: 'Activas' }}
             />
             <Tab.Screen
                 name="BomberoEnProceso"

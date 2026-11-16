@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
     View,
     Text,
@@ -15,6 +15,8 @@ import { globalStyles, colors, spacing, typography, radius } from '../../styles/
 import { useUser } from '../../context/UserContext';
 import { iconoTipo } from '../../screens/ReportEmergencyScreen';
 import { getBomberoEmergencies } from '../services/bomberoService';
+import { supabase } from '../../services/supabaseClient';
+import { dispararNotificacionLocal } from '../../services/notificationService';
 
 export const STATUS_BADGE_MAP = {
     Pendiente: {
@@ -22,6 +24,12 @@ export const STATUS_BADGE_MAP = {
         bg: '#FEF0C7',
         color: '#B54708',
         accent: '#F79009',
+    },
+    Asignado: {
+        label: 'ASIGNADO',
+        bg: '#E0E7FF',
+        color: '#3730A3',
+        accent: '#4F46E5',
     },
     'En Proceso': {
         label: 'EN PROCESO',
@@ -43,9 +51,20 @@ export const STATUS_BADGE_MAP = {
     },
 };
 
+function perteneceACompaniaOUnidad(item, currentUser) {
+    const hasUserScope = Boolean(currentUser?.compania_id || currentUser?.unidad_asignada_id);
+    const hasItemScope = Boolean(item?.companiaId || item?.unidadAsignadaId);
+    if (!hasUserScope || !hasItemScope) return true;
+    const matchCompania = Boolean(currentUser?.compania_id && item?.companiaId === currentUser.compania_id);
+    const matchUnidad = Boolean(
+        currentUser?.unidad_asignada_id && item?.unidadAsignadaId === currentUser.unidad_asignada_id
+    );
+    return matchCompania || matchUnidad;
+}
+
 export default function BomberoDashboardScreen({ route, navigation }) {
     const { user } = useUser();
-    const currentStatusFilter = route.params?.statusFilter || 'Pendiente';
+    const currentStatusFilter = route.params?.statusFilter || 'Activas';
 
     const [emergencies, setEmergencies] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -70,6 +89,30 @@ export default function BomberoDashboardScreen({ route, navigation }) {
         }, [cargarDatos])
     );
 
+    useEffect(() => {
+        const channel = supabase
+            .channel(`emergencias-bombero-${Date.now()}`)
+            .on(
+                'postgres_changes',
+                { event: 'INSERT', schema: 'public', table: 'emergencias' },
+                (payload) => {
+                    cargarDatos(true);
+                    const tipoIncidente = payload?.new?.tipo || 'Emergencia';
+                    dispararNotificacionLocal(
+                        'Nueva Emergencia Reportada',
+                        'Se ha registrado un incidente de tipo ' + tipoIncidente
+                    ).catch((err) => {
+                        console.warn('[BomberoDashboardScreen] Error al disparar notificación:', err);
+                    });
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [cargarDatos]);
+
     const handleRefresh = () => {
         setRefreshing(true);
         cargarDatos(true);
@@ -84,19 +127,42 @@ export default function BomberoDashboardScreen({ route, navigation }) {
     const counts = useMemo(() => {
         return {
             Pendiente: emergencies.filter((e) => e.estado === 'Pendiente').length,
-            'En Proceso': emergencies.filter((e) => e.estado === 'En Proceso').length,
+            Asignado: emergencies.filter(
+                (e) => e.estado === 'Asignado' && perteneceACompaniaOUnidad(e, user)
+            ).length,
+            'En Proceso': emergencies.filter(
+                (e) => e.estado === 'En Proceso' && perteneceACompaniaOUnidad(e, user)
+            ).length,
             Culminado: emergencies.filter((e) => e.estado === 'Culminado').length,
             'Falsa Alarma': emergencies.filter((e) => e.estado === 'Falsa Alarma').length,
         };
-    }, [emergencies]);
+    }, [emergencies, user]);
 
     const totalUnidades = 3;
     const unidadesDisponibles = Math.max(0, totalUnidades - counts['En Proceso']);
 
-    const filteredEmergencies = useMemo(
-        () => emergencies.filter((e) => e.estado === currentStatusFilter),
-        [emergencies, currentStatusFilter]
-    );
+    const filteredEmergencies = useMemo(() => {
+        if (currentStatusFilter === 'Activas' || currentStatusFilter === 'Pendiente') {
+            const prioridadOrden = { 'En Proceso': 0, Asignado: 1, Pendiente: 2 };
+            return emergencies
+                .filter((e) => {
+                    if (e.estado === 'Pendiente') return true;
+                    if (e.estado === 'Asignado' || e.estado === 'En Proceso') {
+                        return perteneceACompaniaOUnidad(e, user);
+                    }
+                    return false;
+                })
+                .sort((a, b) => (prioridadOrden[a.estado] ?? 9) - (prioridadOrden[b.estado] ?? 9));
+        }
+
+        if (currentStatusFilter === 'En Proceso') {
+            return emergencies.filter(
+                (e) => e.estado === 'En Proceso' && perteneceACompaniaOUnidad(e, user)
+            );
+        }
+
+        return emergencies.filter((e) => e.estado === currentStatusFilter);
+    }, [emergencies, currentStatusFilter, user]);
 
     return (
         <SafeAreaView style={globalStyles.screen} edges={['top', 'left', 'right']}>
@@ -198,7 +264,7 @@ export default function BomberoDashboardScreen({ route, navigation }) {
                     {/* Encabezado de la bandeja activa */}
                     <View style={styles.sectionTitleRow}>
                         <Text style={styles.sectionTitleText}>
-                            Bandeja: {currentStatusFilter}
+                            Bandeja: {currentStatusFilter === 'Activas' ? 'Emergencias Activas' : currentStatusFilter}
                         </Text>
                         <Text style={styles.sectionCountText}>
                             {filteredEmergencies.length} registro{filteredEmergencies.length === 1 ? '' : 's'}
@@ -302,6 +368,15 @@ export default function BomberoDashboardScreen({ route, navigation }) {
                                             {item.direccion}
                                         </Text>
                                     </View>
+
+                                    {item.estado === 'Pendiente' && (
+                                        <View style={styles.readOnlyTag}>
+                                            <Ionicons name="eye-outline" size={12} color="#B54708" />
+                                            <Text style={styles.readOnlyTagText}>
+                                                Sin asignar · Solo lectura
+                                            </Text>
+                                        </View>
+                                    )}
 
                                     <View style={styles.cardBottomRow}>
                                         <Text style={styles.iaLabel}>
@@ -593,6 +668,24 @@ const styles = StyleSheet.create({
         fontSize: 12.5,
         color: colors.textMuted,
         flex: 1,
+    },
+    readOnlyTag: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        alignSelf: 'flex-start',
+        gap: 5,
+        marginTop: spacing.xs + 2,
+        backgroundColor: '#FFFAEB',
+        borderWidth: 1,
+        borderColor: '#FEDF89',
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: radius.round,
+    },
+    readOnlyTagText: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#B54708',
     },
     cardBottomRow: {
         flexDirection: 'row',

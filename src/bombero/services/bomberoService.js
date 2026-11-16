@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getStoredReports } from '../../services/reportStorage';
+import { supabase } from '../../services/supabaseClient';
 
 const BOMBERO_EMERGENCIES_KEY = '@omniguard_bombero_emergencies_v1';
 const REPORTS_STORAGE_KEY = '@omniguard_reports';
@@ -21,13 +22,15 @@ export const SUPABASE_CONFIG = {
  */
 export const DEMO_BOMBERO_CREDENTIALS = [
     {
-        id: 'bmb-108-01',
-        usuario: 'bombero116',
-        correo: 'bombero@omniguard.pe',
+        id: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
+        usuario: 'B-746639',
+        correo: 'bombero116@cgbvp.gob.pe',
         password: '123456',
+        compania_id: '11111111-1111-1111-1111-111111111111',
+        unidad_asignada_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
         nombre: 'Cap. Carlos Mendoza Vargas',
         rango: 'Capitán CBP',
-        codigoBombero: 'CBP-10842',
+        codigoBombero: 'B-746639',
         compania: 'Compañía Cap. José A. Quiñonez N° 108',
         direccionEstacion: 'Cap. José A. Quiñonez N° 108, Lima',
         telefono: '(01) 222-0222 / Central 116',
@@ -35,10 +38,12 @@ export const DEMO_BOMBERO_CREDENTIALS = [
         rol: 'bombero',
     },
     {
-        id: 'bmb-108-02',
+        id: 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
         usuario: 'admin',
         correo: 'central108@omniguard.pe',
         password: 'admin123',
+        compania_id: '11111111-1111-1111-1111-111111111111',
+        unidad_asignada_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
         nombre: 'Tnte. Lucía Salazar Paredes',
         rango: 'Teniente CBP',
         codigoBombero: 'CBP-10915',
@@ -150,6 +155,8 @@ export const INITIAL_BOMBERO_EMERGENCIES = [
         coordenadas: { lat: -12.0758, lng: -77.0491 },
         testigosCount: 2,
         iaValidacion: { estado: 'Aprobado', porcentaje: 89 },
+        companiaId: '11111111-1111-1111-1111-111111111111',
+        unidadAsignadaId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
         unidadAsignada: 'M-108-1',
         reportante: {
             nombre: 'ROSA ELENA CASTILLO VARGAS',
@@ -357,9 +364,8 @@ export async function authenticateBombero(identificador, password) {
     // 1. Intentar validación desde Supabase (tabla usuarios_dashboard) si hay URL y Anon Key configuradas
     if (SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey) {
         try {
-            const queryUrl = `${SUPABASE_CONFIG.url}/rest/v1/${SUPABASE_CONFIG.table}?or=(usuario.eq.${encodeURIComponent(
-                cleanId
-            )},correo.eq.${encodeURIComponent(cleanId)},email.eq.${encodeURIComponent(cleanId)})&select=*`;
+            const encodedId = encodeURIComponent(cleanId);
+            const queryUrl = `${SUPABASE_CONFIG.url}/rest/v1/${SUPABASE_CONFIG.table}?or=(usuario.eq.${encodedId},correo.eq.${encodedId},email.eq.${encodedId},placa_servicio.eq.${encodedId})&select=*`;
 
             const response = await fetch(queryUrl, {
                 method: 'GET',
@@ -374,15 +380,17 @@ export async function authenticateBombero(identificador, password) {
                 const rows = await response.json();
                 if (Array.isArray(rows) && rows.length > 0) {
                     const dbUser = rows[0];
-                    const dbPass = dbUser.password || dbUser.contrasena || dbUser.clave;
+                    const dbPass = dbUser.password_hash || dbUser.password || dbUser.contrasena || dbUser.clave;
                     if (String(dbPass) === cleanPass) {
                         return {
                             id: String(dbUser.id || 'supabase-user'),
-                            usuario: dbUser.usuario || dbUser.email || dbUser.correo,
+                            usuario: dbUser.usuario || dbUser.email || dbUser.correo || dbUser.placa_servicio,
                             correo: dbUser.correo || dbUser.email || cleanId,
+                            compania_id: dbUser.compania_id || null,
+                            unidad_asignada_id: dbUser.unidad_asignada_id || null,
                             nombre: dbUser.nombre || dbUser.nombre_completo || 'Bombero Operador',
                             rango: dbUser.rango || dbUser.cargo || 'Efectivo CBP',
-                            codigoBombero: dbUser.codigo || dbUser.dni || 'CBP-108',
+                            codigoBombero: dbUser.placa_servicio || dbUser.codigo || dbUser.dni || 'CBP-108',
                             compania: dbUser.compania || 'Compañía Cap. José A. Quiñonez N° 108',
                             direccionEstacion: dbUser.direccion_estacion || 'Cap. José A. Quiñonez N° 108',
                             telefono: dbUser.telefono || 'Central 116',
@@ -423,7 +431,115 @@ export async function authenticateBombero(identificador, password) {
 }
 
 /**
- * Obtiene y sincroniza todas las emergencias (combinando las del dashboard con los reportes ciudadanos).
+ * Valida si un valor tiene formato UUID estándar para evitar errores 22P02 en PostgreSQL.
+ */
+export function esUuidValido(valor) {
+    if (typeof valor !== 'string') return false;
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(valor.trim());
+}
+
+/**
+ * Normaliza variantes de estado (minusculas o guiones bajos) a los valores exactos de la UI.
+ */
+export function normalizarEstado(estado) {
+    if (!estado) return 'Pendiente';
+    const clave = String(estado).trim().toLowerCase().replace(/\s+/g, '_');
+    const mapa = {
+        pendiente: 'Pendiente',
+        asignado: 'Asignado',
+        en_camino: 'En Proceso',
+        en_atencion: 'En Proceso',
+        en_proceso: 'En Proceso',
+        resuelto_campo: 'Culminado',
+        cerrado: 'Culminado',
+        culminado: 'Culminado',
+        falsa_alarma: 'Falsa Alarma',
+    };
+    return mapa[clave] || estado;
+}
+
+/**
+ * Formatea una fecha ISO de Supabase a formato legible DD/MM/YYYY · HH:mm y fecha corta.
+ */
+function formatSupabaseDate(isoString) {
+    if (!isoString) {
+        return { fecha: 'Reciente', fechaCorta: 'Hoy' };
+    }
+    const date = new Date(isoString);
+    if (Number.isNaN(date.getTime())) {
+        return { fecha: String(isoString), fechaCorta: String(isoString) };
+    }
+    const dia = date.getDate();
+    const mes = date.getMonth() + 1;
+    const anio = date.getFullYear();
+    const horas = String(date.getHours()).padStart(2, '0');
+    const minutos = String(date.getMinutes()).padStart(2, '0');
+    return {
+        fecha: `${String(dia).padStart(2, '0')}/${String(mes).padStart(2, '0')}/${anio} · ${horas}:${minutos}`,
+        fechaCorta: `${dia}/${mes}/${anio}`,
+    };
+}
+
+/**
+ * Mapea una fila de la tabla `emergencias` de Supabase al formato esperado por el modulo de bombero.
+ */
+function mapSupabaseEmergencyRow(row) {
+    const { fecha, fechaCorta } = formatSupabaseDate(row.creado_en);
+    const lat = Number(row.latitud ?? -12.0532);
+    const lng = Number(row.longitud ?? -77.0365);
+    const usuarioObj = Array.isArray(row.usuarios) ? row.usuarios[0] : row.usuarios;
+    const nombres = [usuarioObj?.nombres, usuarioObj?.apellidos].filter(Boolean).join(' ').trim();
+    const nombreReportante = nombres || 'CIUDADANO VERIFICADO RENIEC';
+    const dniReportante = usuarioObj?.dni || 'No registrado';
+    const estadoNormalizado = normalizarEstado(row.estado);
+
+    return {
+        id: String(row.id),
+        tipo: row.tipo || 'Emergencia',
+        estado: estadoNormalizado,
+        fecha,
+        fechaCorta,
+        direccion: row.direccion || `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)} (Geolocalizado)`,
+        referencia: row.referencia || 'Reporte enviado desde plataforma ciudadana OmniGuard',
+        coordenadas: { lat, lng },
+        testigosCount: row.testigos ?? 1,
+        companiaId: row.compania_id || null,
+        unidadAsignadaId: row.unidad_asignada_id || null,
+        unidadAsignada: row.unidad_asignada || row.unidad_asignada_id || null,
+        fotoUrl: row.foto_url || null,
+        fotoCierreUrl: row.foto_cierre_url || null,
+        informeBombero: row.informe_bombero || null,
+        iaValidacion: {
+            estado: row.ia_estado || 'Aprobado',
+            porcentaje: row.ia_porcentaje ?? 95,
+        },
+        reportante: {
+            nombre: nombreReportante,
+            dni: dniReportante,
+            telefono: '116',
+        },
+        testigos: [
+            {
+                id: `t-${row.id}`,
+                nombre: nombreReportante,
+                dni: dniReportante,
+                hora: fecha.includes('·') ? fecha.split('·')[1].trim() : 'Ahora',
+                comentario: `Alerta de ${row.tipo || 'Emergencia'} registrada con coordenadas GPS.`,
+            },
+        ],
+        evidencia: {
+            descripcion: row.foto_url
+                ? `Emergencia "${row.tipo}" registrada con fotografia adjunta y coordenadas GPS.`
+                : `Alerta ciudadana de tipo "${row.tipo}" con coordenadas GPS en tiempo real.`,
+            confianzaDetalle: 'Validacion de incidente recibida desde central OmniGuard.',
+            fechaCaptura: fecha,
+            Prioridad: estadoNormalizado === 'Pendiente' ? 'ALTA - Pendiente de despacho' : `Estado: ${estadoNormalizado}`,
+        },
+    };
+}
+
+/**
+ * Obtiene y sincroniza todas las emergencias (combinando Supabase, dashboard local y reportes ciudadanos).
  */
 export async function getBomberoEmergencies() {
     try {
@@ -435,27 +551,31 @@ export async function getBomberoEmergencies() {
             await AsyncStorage.setItem(BOMBERO_EMERGENCIES_KEY, JSON.stringify(bomberoList));
         }
 
-        // Sincronizar nuevos reportes creados por ciudadanos desde ReportEmergencyScreen
+        // Sincronizar nuevos reportes creados por ciudadanos en AsyncStorage
         const citizenReports = await getStoredReports();
         let hasChanges = false;
 
         for (const report of citizenReports) {
-            // Ignorar los 4 reportes semilla antiguos ('1', '2', '3', '4') si no tienen detalle extendido
             const isSeedReport = ['1', '2', '3', '4'].includes(String(report.id));
             const existsInBombero = bomberoList.some((b) => String(b.id) === String(report.id));
 
             if (!isSeedReport && !existsInBombero) {
                 const fechaCorta = report.fecha ? report.fecha.split('·')[0].trim() : 'Hoy';
+                const lat = report.coordenadas?.lat ?? -12.0532;
+                const lng = report.coordenadas?.lng ?? -77.0365;
                 const nuevaEmergencia = {
                     id: String(report.id),
                     tipo: report.tipo || 'Emergencia',
-                    estado: report.estado || 'Pendiente',
+                    estado: normalizarEstado(report.estado),
                     fecha: report.fecha || fechaCorta,
                     fechaCorta,
-                    direccion: report.direccion || 'Av. Arequipa 1250, Cercado de Lima (Geolocalizado)',
+                    direccion: report.direccion || `Lat: ${Number(lat).toFixed(5)}, Lng: ${Number(lng).toFixed(5)} (Geolocalizado)`,
                     referencia: 'Reporte enviado desde aplicación móvil ciudadana OmniGuard',
-                    coordenadas: { lat: -12.0745, lng: -77.0358 },
+                    coordenadas: { lat, lng },
                     testigosCount: 1,
+                    fotoUrl: report.fotoUrl || null,
+                    fotoCierreUrl: null,
+                    informeBombero: null,
                     iaValidacion: { estado: 'Aprobado', porcentaje: 94 },
                     reportante: {
                         nombre: report.reportanteNombre || 'CIUDADANO VERIFICADO RENIEC',
@@ -483,6 +603,28 @@ export async function getBomberoEmergencies() {
             }
         }
 
+        // Consultar registros remotos en Supabase (con fallback offline)
+        if (SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey) {
+            try {
+                const { data: remoteRows, error: remoteError } = await supabase
+                    .from('emergencias')
+                    .select('*, usuarios(dni, nombres, apellidos)')
+                    .order('creado_en', { ascending: false });
+
+                if (remoteError) {
+                    console.error('[bomberoService] Error al consultar emergencias en Supabase:', remoteError);
+                } else if (Array.isArray(remoteRows)) {
+                    const mappedRemote = remoteRows.map(mapSupabaseEmergencyRow);
+                    const remoteIds = new Set(mappedRemote.map((item) => String(item.id)));
+                    const localOnly = bomberoList.filter((item) => !remoteIds.has(String(item.id)));
+                    bomberoList = [...mappedRemote, ...localOnly];
+                    hasChanges = true;
+                }
+            } catch (netErr) {
+                console.error('[bomberoService] Fallo de red al sincronizar emergencias con Supabase:', netErr);
+            }
+        }
+
         if (hasChanges) {
             await AsyncStorage.setItem(BOMBERO_EMERGENCIES_KEY, JSON.stringify(bomberoList));
         }
@@ -496,17 +638,50 @@ export async function getBomberoEmergencies() {
 
 /**
  * Actualiza el estado de una emergencia ('Pendiente' | 'En Proceso' | 'Culminado' | 'Falsa Alarma')
- * y ajusta automáticamente las unidades disponibles y la lista de reportes ciudadanos.
+ * en Supabase (con fallback offline) y sincroniza AsyncStorage.
  */
-export async function updateEmergencyStatus(emergencyId, nuevoEstado) {
+export async function updateEmergencyStatus(
+    emergencyId,
+    nuevoEstado,
+    datosCierre = { fotoCierreUrl: null, informeBombero: null, bomberoId: null }
+) {
+    const estadoNormalizado = normalizarEstado(nuevoEstado);
     try {
+        if (SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey) {
+            try {
+                const updatePayload = { estado: estadoNormalizado };
+                if (datosCierre?.fotoCierreUrl) {
+                    updatePayload.foto_cierre_url = datosCierre.fotoCierreUrl;
+                }
+                if (datosCierre?.informeBombero) {
+                    updatePayload.informe_bombero = datosCierre.informeBombero;
+                }
+                updatePayload.bombero_cierre_id = esUuidValido(datosCierre?.bomberoId)
+                    ? datosCierre.bomberoId.trim()
+                    : null;
+
+                const { error: updateError } = await supabase
+                    .from('emergencias')
+                    .update(updatePayload)
+                    .eq('id', emergencyId);
+
+                if (updateError) {
+                    console.error('[bomberoService] Error al actualizar emergencia en Supabase:', updateError);
+                }
+            } catch (netErr) {
+                console.error('[bomberoService] Fallo de red al actualizar estado en Supabase:', netErr);
+            }
+        }
+
         const list = await getBomberoEmergencies();
         const updatedList = list.map((item) => {
             if (String(item.id) === String(emergencyId)) {
                 return {
                     ...item,
-                    estado: nuevoEstado,
-                    unidadAsignada: nuevoEstado === 'En Proceso' ? item.unidadAsignada || 'M-108-1' : item.unidadAsignada,
+                    estado: estadoNormalizado,
+                    unidadAsignada: estadoNormalizado === 'En Proceso' ? item.unidadAsignada || 'M-108-1' : item.unidadAsignada,
+                    fotoCierreUrl: datosCierre?.fotoCierreUrl || item.fotoCierreUrl || null,
+                    informeBombero: datosCierre?.informeBombero || item.informeBombero || null,
                 };
             }
             return item;
@@ -519,7 +694,7 @@ export async function updateEmergencyStatus(emergencyId, nuevoEstado) {
         if (citizenJson) {
             const citizenList = JSON.parse(citizenJson);
             const updatedCitizen = citizenList.map((r) =>
-                String(r.id) === String(emergencyId) ? { ...r, estado: nuevoEstado } : r
+                String(r.id) === String(emergencyId) ? { ...r, estado: estadoNormalizado } : r
             );
             await AsyncStorage.setItem(REPORTS_STORAGE_KEY, JSON.stringify(updatedCitizen));
         }

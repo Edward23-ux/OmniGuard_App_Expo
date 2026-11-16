@@ -31,8 +31,10 @@ export async function getStoredReports() {
 /**
  * Agrega un nuevo reporte de emergencia al inicio del historial en AsyncStorage.
  * @param {string} tipoEmergencia - Nombre del tipo de emergencia (ej. "Incendio")
+ * @param {object|null} user - Datos del usuario reportante
+ * @param {object} extraData - Datos adicionales opcionales (id remoto, coordenadas, fotoUrl)
  */
-export async function saveNewReport(tipoEmergencia, user = null) {
+export async function saveNewReport(tipoEmergencia, user = null, extraData = {}) {
     try {
         const actuales = await getStoredReports();
 
@@ -45,12 +47,14 @@ export async function saveNewReport(tipoEmergencia, user = null) {
         const fechaFormateada = `${dia}/${mes}/${anio} · ${horas}:${minutos}`;
 
         const nuevoReporte = {
-            id: Date.now().toString(),
+            id: extraData.id ? String(extraData.id) : Date.now().toString(),
             tipo: tipoEmergencia,
             fecha: fechaFormateada,
             estado: 'Pendiente',
             reportanteNombre: user?.nombre || 'CIUDADANO VERIFICADO RENIEC',
             reportanteDni: user?.dni || '73338614',
+            coordenadas: extraData.coordenadas || null,
+            fotoUrl: extraData.fotoUrl || null,
         };
 
         const nuevaLista = [nuevoReporte, ...actuales];

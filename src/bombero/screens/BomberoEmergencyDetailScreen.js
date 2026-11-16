@@ -8,76 +8,249 @@ import {
     Modal,
     Linking,
     Alert,
+    Image,
+    TextInput,
+    ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { globalStyles, colors, spacing, typography, radius } from '../../styles/globalStyles';
 import { iconoTipo } from '../../screens/ReportEmergencyScreen';
 import { updateEmergencyStatus } from '../services/bomberoService';
+import { subirEvidenciaFotografica } from '../../services/supabaseClient';
+import { dispararNotificacionLocal } from '../../services/notificationService';
+import { useUser } from '../../context/UserContext';
 import { STATUS_BADGE_MAP } from './BomberoDashboardScreen';
 import InteractiveEmergencyMap from '../components/InteractiveEmergencyMap';
 
-const ACTION_BUTTONS = [
-    {
-        targetState: 'Pendiente',
-        label: 'Pendiente',
-        icon: 'clock-outline',
-        bg: '#FEF0C7',
-        border: '#FEC84B',
-        color: '#B54708',
-    },
-    {
-        targetState: 'En Proceso',
-        label: 'Atender',
-        icon: 'fire-truck',
-        bg: '#D1E9FF',
-        border: '#84CAFF',
-        color: '#175CD3',
-    },
-    {
-        targetState: 'Culminado',
-        label: 'Culminar',
-        icon: 'check-circle-outline',
-        bg: '#D1FADF',
-        border: '#6CE9A6',
-        color: '#027A48',
-    },
-    {
-        targetState: 'Falsa Alarma',
-        label: 'Falsa Alarma',
-        icon: 'close-circle-outline',
-        bg: '#FEE4E2',
-        border: '#FDA29B',
-        color: '#B42318',
-    },
+const MOTIVOS_FALSA_ALARMA = [
+    'Sin indicios en el lugar',
+    'Actividad controlada / autorizada',
+    'Ubicación inexistente',
 ];
 
 export default function BomberoEmergencyDetailScreen({ route, navigation }) {
+    const { user } = useUser();
     const initialEmergency = route.params?.emergency || {};
     const [emergency, setEmergency] = useState(initialEmergency);
     const [updating, setUpdating] = useState(false);
     const [testigosModalVisible, setTestigosModalVisible] = useState(false);
     const [evidenciaModalVisible, setEvidenciaModalVisible] = useState(false);
+    const [confirmAtencionModalVisible, setConfirmAtencionModalVisible] = useState(false);
+    const [cierreModalVisible, setCierreModalVisible] = useState(false);
+    const [cierreFotoUri, setCierreFotoUri] = useState(null);
+    const [cierreInforme, setCierreInforme] = useState('');
+    const [submittingCierre, setSubmittingCierre] = useState(false);
+    const [falsaAlarmaModalVisible, setFalsaAlarmaModalVisible] = useState(false);
+    const [falsaAlarmaFotoUri, setFalsaAlarmaFotoUri] = useState(null);
+    const [falsaAlarmaMotivo, setFalsaAlarmaMotivo] = useState('');
+    const [falsaAlarmaDetalle, setFalsaAlarmaDetalle] = useState('');
+    const [submittingFalsaAlarma, setSubmittingFalsaAlarma] = useState(false);
     const [isTouchingMap, setIsTouchingMap] = useState(false);
 
     const statusBadge = STATUS_BADGE_MAP[emergency.estado] || STATUS_BADGE_MAP.Pendiente;
     const shortId = String(emergency.id || '6cd64a46').slice(0, 8);
     const isIaApproved = emergency.iaValidacion?.estado !== 'Rechazado';
+    const isClosedState = emergency.estado === 'Culminado' || emergency.estado === 'Falsa Alarma';
 
-    const handleChangeStatus = async (nuevoEstado) => {
-        if (updating || emergency.estado === nuevoEstado) return;
+    const capturarFotoEnSitio = async (onCaptured) => {
+        try {
+            const { status } = await ImagePicker.requestCameraPermissionsAsync();
+            if (status !== 'granted') {
+                Alert.alert(
+                    'Permiso de cámara requerido',
+                    'Habilita el acceso a la cámara en la configuración para registrar la evidencia en sitio.',
+                    [
+                        { text: 'Cancelar', style: 'cancel' },
+                        { text: 'Abrir configuración', onPress: () => Linking.openSettings() },
+                    ]
+                );
+                return;
+            }
+
+            const result = await ImagePicker.launchCameraAsync({
+                mediaTypes: ['images'],
+                allowsEditing: false,
+                quality: 0.7,
+            });
+
+            if (!result.canceled && result.assets?.length > 0) {
+                onCaptured(result.assets[0].uri);
+            }
+        } catch (error) {
+            console.error('[BomberoEmergencyDetailScreen] Error al capturar fotografía:', error);
+            Alert.alert('Error', 'No se pudo acceder a la cámara del dispositivo.');
+        }
+    };
+
+    const handleConfirmarInicioAtencion = async () => {
+        if (updating) return;
         setUpdating(true);
         try {
-            const updated = await updateEmergencyStatus(emergency.id, nuevoEstado);
+            const updated = await updateEmergencyStatus(emergency.id, 'En Proceso', {
+                bomberoId: user?.id || null,
+            });
             if (updated) {
                 setEmergency(updated);
             } else {
-                setEmergency((prev) => ({ ...prev, estado: nuevoEstado }));
+                setEmergency((prev) => ({ ...prev, estado: 'En Proceso' }));
             }
+            setConfirmAtencionModalVisible(false);
         } catch (err) {
-            Alert.alert('Error', 'No se pudo actualizar el estado de la emergencia.');
+            Alert.alert('Error', 'No se pudo iniciar la atención de la emergencia.');
         } finally {
             setUpdating(false);
+        }
+    };
+
+    const handleAbrirModalCierre = () => {
+        setCierreFotoUri(null);
+        setCierreInforme('');
+        setCierreModalVisible(true);
+    };
+
+    const handleCapturarFotoCierre = () => {
+        capturarFotoEnSitio(setCierreFotoUri);
+    };
+
+    const handleAbrirModalFalsaAlarma = () => {
+        setFalsaAlarmaFotoUri(null);
+        setFalsaAlarmaMotivo('');
+        setFalsaAlarmaDetalle('');
+        setFalsaAlarmaModalVisible(true);
+    };
+
+    const handleCapturarFotoFalsaAlarma = () => {
+        capturarFotoEnSitio(setFalsaAlarmaFotoUri);
+    };
+
+    const getInformeFalsaAlarma = () => {
+        const motivo = falsaAlarmaMotivo.trim();
+        const detalle = falsaAlarmaDetalle.trim();
+        if (motivo && detalle) return `${motivo}. ${detalle}`;
+        return motivo || detalle;
+    };
+
+    const handleConfirmarFalsaAlarma = async () => {
+        const informeFinal = getInformeFalsaAlarma();
+        if (!falsaAlarmaFotoUri) {
+            Alert.alert('Fotografía obligatoria', 'Debes capturar una fotografía en sitio para descartar la emergencia.');
+            return;
+        }
+        if (informeFinal.length < 5) {
+            Alert.alert('Motivo requerido', 'Selecciona un motivo o ingresa un detalle de al menos 5 caracteres.');
+            return;
+        }
+
+        setSubmittingFalsaAlarma(true);
+        let fotoCierreUrl = null;
+
+        try {
+            try {
+                fotoCierreUrl = await subirEvidenciaFotografica(
+                    falsaAlarmaFotoUri,
+                    'cierres',
+                    String(emergency.id)
+                );
+            } catch (uploadError) {
+                console.error('[BomberoEmergencyDetailScreen] Error al subir foto de falsa alarma:', uploadError);
+                fotoCierreUrl = falsaAlarmaFotoUri;
+            }
+
+            const updated = await updateEmergencyStatus(emergency.id, 'Falsa Alarma', {
+                fotoCierreUrl,
+                informeBombero: informeFinal,
+                bomberoId: user?.id || null,
+            });
+
+            if (updated) {
+                setEmergency(updated);
+            } else {
+                setEmergency((prev) => ({
+                    ...prev,
+                    estado: 'Falsa Alarma',
+                    fotoCierreUrl,
+                    informeBombero: informeFinal,
+                }));
+            }
+
+            setFalsaAlarmaModalVisible(false);
+
+            try {
+                await dispararNotificacionLocal(
+                    'Emergencia Descartada',
+                    'Se registró el acta de falsa alarma en la central.'
+                );
+            } catch (notifErr) {
+                console.warn('[BomberoEmergencyDetailScreen] No se pudo disparar notificación:', notifErr);
+            }
+        } catch (err) {
+            console.error('[BomberoEmergencyDetailScreen] Error al registrar falsa alarma:', err);
+            Alert.alert('Error', 'No se pudo registrar el acta de falsa alarma.');
+        } finally {
+            setSubmittingFalsaAlarma(false);
+        }
+    };
+
+    const handleConfirmarCierre = async () => {
+        const informeLimpio = cierreInforme.trim();
+        if (!cierreFotoUri) {
+            Alert.alert('Fotografía obligatoria', 'Debes capturar la fotografía final del siniestro controlado.');
+            return;
+        }
+        if (informeLimpio.length < 5) {
+            Alert.alert('Informe requerido', 'Ingresa un comentario técnico de al menos 5 caracteres.');
+            return;
+        }
+
+        setSubmittingCierre(true);
+        let fotoCierreUrl = null;
+
+        try {
+            try {
+                fotoCierreUrl = await subirEvidenciaFotografica(
+                    cierreFotoUri,
+                    'cierres',
+                    String(emergency.id)
+                );
+            } catch (uploadError) {
+                console.error('[BomberoEmergencyDetailScreen] Error al subir foto de cierre a Supabase:', uploadError);
+                fotoCierreUrl = cierreFotoUri;
+            }
+
+            const updated = await updateEmergencyStatus(emergency.id, 'Culminado', {
+                fotoCierreUrl,
+                informeBombero: informeLimpio,
+                bomberoId: user?.id || null,
+            });
+
+            if (updated) {
+                setEmergency(updated);
+            } else {
+                setEmergency((prev) => ({
+                    ...prev,
+                    estado: 'Culminado',
+                    fotoCierreUrl,
+                    informeBombero: informeLimpio,
+                }));
+            }
+
+            setCierreModalVisible(false);
+
+            try {
+                await dispararNotificacionLocal(
+                    'Emergencia Culminada',
+                    'Se registró la evidencia de cierre en la central.'
+                );
+            } catch (notifErr) {
+                console.warn('[BomberoEmergencyDetailScreen] No se pudo disparar notificación:', notifErr);
+            }
+        } catch (err) {
+            console.error('[BomberoEmergencyDetailScreen] Error al culminar emergencia:', err);
+            Alert.alert('Error', 'No se pudo registrar el cierre de la emergencia.');
+        } finally {
+            setSubmittingCierre(false);
         }
     };
 
@@ -146,42 +319,68 @@ export default function BomberoEmergencyDetailScreen({ route, navigation }) {
                         </View>
                     </View>
 
-                    <Text style={styles.actionSectionTitle}>CAMBIAR ESTADO DE ATENCIÓN:</Text>
-                    <View style={styles.actionsGrid}>
-                        {ACTION_BUTTONS.map((btn) => {
-                            const isCurrent = emergency.estado === btn.targetState;
-                            return (
+                    {emergency.estado === 'Pendiente' && (
+                        <View style={styles.readOnlyBanner}>
+                            <Ionicons name="information-circle-outline" size={20} color="#B54708" />
+                            <Text style={styles.readOnlyBannerText}>
+                                Emergencia pendiente de despacho por la Central. Modo solo lectura hasta su asignación.
+                            </Text>
+                        </View>
+                    )}
+
+                    {emergency.estado === 'Asignado' && (
+                        <>
+                            <Text style={styles.actionSectionTitle}>ACCIONES DE ATENCIÓN:</Text>
+                            <View style={styles.sequentialActionsRow}>
                                 <TouchableOpacity
-                                    key={btn.targetState}
-                                    style={[
-                                        styles.actionBtn,
-                                        {
-                                            backgroundColor: isCurrent ? btn.bg : '#F9FAFB',
-                                            borderColor: isCurrent ? btn.border : colors.border,
-                                        },
-                                        isCurrent && styles.actionBtnActive,
-                                    ]}
-                                    activeOpacity={0.8}
+                                    style={[styles.sequentialBtn, styles.primaryActionBtn]}
+                                    activeOpacity={0.85}
                                     disabled={updating}
-                                    onPress={() => handleChangeStatus(btn.targetState)}
+                                    onPress={() => setConfirmAtencionModalVisible(true)}
                                 >
-                                    <MaterialCommunityIcons
-                                        name={btn.icon}
-                                        size={18}
-                                        color={isCurrent ? btn.color : colors.textMuted}
-                                    />
-                                    <Text
-                                        style={[
-                                            styles.actionBtnText,
-                                            { color: isCurrent ? btn.color : colors.text },
-                                        ]}
-                                    >
-                                        {btn.label}
-                                    </Text>
+                                    <MaterialCommunityIcons name="fire-truck" size={18} color={colors.surface} />
+                                    <Text style={styles.primaryActionBtnText}>Iniciar Atención</Text>
                                 </TouchableOpacity>
-                            );
-                        })}
-                    </View>
+
+                                <TouchableOpacity
+                                    style={[styles.sequentialBtn, styles.dangerOutlineBtn]}
+                                    activeOpacity={0.85}
+                                    disabled={updating}
+                                    onPress={handleAbrirModalFalsaAlarma}
+                                >
+                                    <MaterialCommunityIcons name="close-circle-outline" size={18} color="#B42318" />
+                                    <Text style={styles.dangerOutlineBtnText}>Falsa Alarma</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </>
+                    )}
+
+                    {emergency.estado === 'En Proceso' && (
+                        <>
+                            <Text style={styles.actionSectionTitle}>ACCIONES EN CAMPO:</Text>
+                            <View style={styles.sequentialActionsRow}>
+                                <TouchableOpacity
+                                    style={[styles.sequentialBtn, styles.successActionBtn]}
+                                    activeOpacity={0.85}
+                                    disabled={updating}
+                                    onPress={handleAbrirModalCierre}
+                                >
+                                    <MaterialCommunityIcons name="check-circle-outline" size={18} color={colors.surface} />
+                                    <Text style={styles.primaryActionBtnText}>Culminar Emergencia</Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    style={[styles.sequentialBtn, styles.dangerOutlineBtn]}
+                                    activeOpacity={0.85}
+                                    disabled={updating}
+                                    onPress={handleAbrirModalFalsaAlarma}
+                                >
+                                    <MaterialCommunityIcons name="close-circle-outline" size={18} color="#B42318" />
+                                    <Text style={styles.dangerOutlineBtnText}>Falsa Alarma</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </>
+                    )}
                 </View>
 
                 {/* 2. Tarjeta Dirección Aproximada */}
@@ -296,6 +495,28 @@ export default function BomberoEmergencyDetailScreen({ route, navigation }) {
                             </TouchableOpacity>
                         </View>
                     </View>
+
+                    {isClosedState && (emergency.fotoCierreUrl || emergency.informeBombero) && (
+                        <View style={styles.cierreSummaryBox}>
+                            <Text style={styles.cierreSummaryLabel}>
+                                {emergency.estado === 'Falsa Alarma'
+                                    ? 'ACTA DE FALSA ALARMA REGISTRADA'
+                                    : 'ACTA DE CIERRE EN CAMPO'}
+                            </Text>
+                            {!!emergency.fotoCierreUrl && (
+                                <Image
+                                    source={{ uri: emergency.fotoCierreUrl }}
+                                    style={styles.cierreSummaryImage}
+                                    resizeMode="cover"
+                                />
+                            )}
+                            {!!emergency.informeBombero && (
+                                <Text style={styles.cierreSummaryText}>
+                                    {emergency.informeBombero}
+                                </Text>
+                            )}
+                        </View>
+                    )}
                 </View>
             </ScrollView>
 
@@ -370,9 +591,17 @@ export default function BomberoEmergencyDetailScreen({ route, navigation }) {
                         </View>
 
                         <View style={styles.evidencePreviewBox}>
-                            <View style={styles.evidenceIconBadge}>
-                                {iconoTipo[emergency.tipo] || iconoTipo['Incendio']}
-                            </View>
+                            {emergency.fotoUrl ? (
+                                <Image
+                                    source={{ uri: emergency.fotoUrl }}
+                                    style={styles.evidenceRealImage}
+                                    resizeMode="cover"
+                                />
+                            ) : (
+                                <View style={styles.evidenceIconBadge}>
+                                    {iconoTipo[emergency.tipo] || iconoTipo['Incendio']}
+                                </View>
+                            )}
                             <Text style={styles.evidenceVisualTitle}>
                                 Captura Verificada · {emergency.tipo}
                             </Text>
@@ -421,6 +650,253 @@ export default function BomberoEmergencyDetailScreen({ route, navigation }) {
                             onPress={() => setEvidenciaModalVisible(false)}
                         >
                             <Text style={typography.buttonText}>Cerrar evidencia</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Modal: Acta de Cierre en Campo (Camara obligatoria + Informe tecnico) */}
+            <Modal
+                visible={cierreModalVisible}
+                transparent
+                animationType="slide"
+                onRequestClose={() => !submittingCierre && setCierreModalVisible(false)}
+            >
+                <View style={styles.modalBackdrop}>
+                    <View style={styles.modalSheet}>
+                        <View style={styles.modalHeader}>
+                            <Text style={typography.h2}>Acta de Cierre en Campo</Text>
+                            <TouchableOpacity
+                                disabled={submittingCierre}
+                                onPress={() => setCierreModalVisible(false)}
+                            >
+                                <Ionicons name="close" size={24} color={colors.text} />
+                            </TouchableOpacity>
+                        </View>
+                        <Text style={[typography.caption, { marginBottom: spacing.md }]}>
+                            Registra la fotografía final del siniestro controlado y un breve informe técnico.
+                        </Text>
+
+                        {cierreFotoUri ? (
+                            <View style={styles.cierrePhotoPreviewWrap}>
+                                <Image
+                                    source={{ uri: cierreFotoUri }}
+                                    style={styles.cierrePhotoPreview}
+                                    resizeMode="cover"
+                                />
+                                <TouchableOpacity
+                                    style={styles.retakePhotoBtn}
+                                    activeOpacity={0.8}
+                                    disabled={submittingCierre}
+                                    onPress={handleCapturarFotoCierre}
+                                >
+                                    <Ionicons name="camera-reverse-outline" size={16} color={colors.text} />
+                                    <Text style={styles.retakePhotoText}>Volver a tomar foto</Text>
+                                </TouchableOpacity>
+                            </View>
+                        ) : (
+                            <TouchableOpacity
+                                style={styles.cierreCameraBtn}
+                                activeOpacity={0.8}
+                                disabled={submittingCierre}
+                                onPress={handleCapturarFotoCierre}
+                            >
+                                <Ionicons name="camera" size={24} color={colors.primary} />
+                                <Text style={styles.cierreCameraText}>Capturar fotografía final</Text>
+                            </TouchableOpacity>
+                        )}
+
+                        <Text style={styles.cierreInputLabel}>INFORME TÉCNICO DE CIERRE</Text>
+                        <TextInput
+                            style={styles.cierreTextInput}
+                            placeholder="Describe las acciones realizadas (mínimo 5 caracteres)..."
+                            placeholderTextColor={colors.textMuted}
+                            multiline
+                            numberOfLines={3}
+                            value={cierreInforme}
+                            onChangeText={setCierreInforme}
+                            editable={!submittingCierre}
+                            textAlignVertical="top"
+                        />
+
+                        <TouchableOpacity
+                            style={[
+                                globalStyles.primaryButton,
+                                { paddingVertical: 14, marginTop: spacing.md, flexDirection: 'row' },
+                                (!cierreFotoUri || cierreInforme.trim().length < 5 || submittingCierre) &&
+                                    globalStyles.primaryButtonDisabled,
+                            ]}
+                            activeOpacity={0.85}
+                            disabled={submittingCierre}
+                            onPress={handleConfirmarCierre}
+                        >
+                            {submittingCierre && (
+                                <ActivityIndicator size="small" color={colors.surface} style={{ marginRight: 8 }} />
+                            )}
+                            <Text style={typography.buttonText}>
+                                {submittingCierre ? 'Registrando cierre...' : 'Confirmar y Culminar'}
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Modal: Confirmación de Inicio de Atención */}
+            <Modal
+                visible={confirmAtencionModalVisible}
+                transparent
+                animationType="fade"
+                onRequestClose={() => !updating && setConfirmAtencionModalVisible(false)}
+            >
+                <View style={styles.confirmBackdrop}>
+                    <View style={styles.confirmCard}>
+                        <View style={styles.confirmIconCircle}>
+                            <MaterialCommunityIcons name="fire-truck" size={28} color={colors.info} />
+                        </View>
+                        <Text style={styles.confirmTitle}>Iniciar Atención</Text>
+                        <Text style={styles.confirmMessage}>
+                            ¿Confirmar inicio de desplazamiento y atención de esta emergencia?
+                        </Text>
+
+                        <View style={styles.confirmButtonsRow}>
+                            <TouchableOpacity
+                                style={styles.confirmCancelBtn}
+                                activeOpacity={0.8}
+                                disabled={updating}
+                                onPress={() => setConfirmAtencionModalVisible(false)}
+                            >
+                                <Text style={styles.confirmCancelText}>Cancelar</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={[styles.confirmAcceptBtn, updating && globalStyles.primaryButtonDisabled]}
+                                activeOpacity={0.85}
+                                disabled={updating}
+                                onPress={handleConfirmarInicioAtencion}
+                            >
+                                {updating ? (
+                                    <ActivityIndicator size="small" color={colors.surface} />
+                                ) : (
+                                    <Text style={styles.confirmAcceptText}>Confirmar Atención</Text>
+                                )}
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Modal: Acta de Falsa Alarma (Camara obligatoria + Motivo) */}
+            <Modal
+                visible={falsaAlarmaModalVisible}
+                transparent
+                animationType="slide"
+                onRequestClose={() => !submittingFalsaAlarma && setFalsaAlarmaModalVisible(false)}
+            >
+                <View style={styles.modalBackdrop}>
+                    <View style={styles.modalSheet}>
+                        <View style={styles.modalHeader}>
+                            <Text style={typography.h2}>Acta de Falsa Alarma</Text>
+                            <TouchableOpacity
+                                disabled={submittingFalsaAlarma}
+                                onPress={() => setFalsaAlarmaModalVisible(false)}
+                            >
+                                <Ionicons name="close" size={24} color={colors.text} />
+                            </TouchableOpacity>
+                        </View>
+                        <Text style={[typography.caption, { marginBottom: spacing.md }]}>
+                            Captura una fotografía de verificación en el lugar y especifica el motivo del descarte.
+                        </Text>
+
+                        {falsaAlarmaFotoUri ? (
+                            <View style={styles.cierrePhotoPreviewWrap}>
+                                <Image
+                                    source={{ uri: falsaAlarmaFotoUri }}
+                                    style={styles.cierrePhotoPreview}
+                                    resizeMode="cover"
+                                />
+                                <TouchableOpacity
+                                    style={styles.retakePhotoBtn}
+                                    activeOpacity={0.8}
+                                    disabled={submittingFalsaAlarma}
+                                    onPress={handleCapturarFotoFalsaAlarma}
+                                >
+                                    <Ionicons name="camera-reverse-outline" size={16} color={colors.text} />
+                                    <Text style={styles.retakePhotoText}>Volver a tomar foto</Text>
+                                </TouchableOpacity>
+                            </View>
+                        ) : (
+                            <TouchableOpacity
+                                style={styles.cierreCameraBtn}
+                                activeOpacity={0.8}
+                                disabled={submittingFalsaAlarma}
+                                onPress={handleCapturarFotoFalsaAlarma}
+                            >
+                                <Ionicons name="camera" size={24} color={colors.primary} />
+                                <Text style={styles.cierreCameraText}>Capturar fotografía en sitio</Text>
+                            </TouchableOpacity>
+                        )}
+
+                        <Text style={styles.cierreInputLabel}>MOTIVO DEL DESCARTE</Text>
+                        <View style={styles.motivosWrap}>
+                            {MOTIVOS_FALSA_ALARMA.map((motivo) => {
+                                const selected = falsaAlarmaMotivo === motivo;
+                                return (
+                                    <TouchableOpacity
+                                        key={motivo}
+                                        style={[
+                                            styles.motivoChip,
+                                            selected && styles.motivoChipSelected,
+                                        ]}
+                                        activeOpacity={0.8}
+                                        disabled={submittingFalsaAlarma}
+                                        onPress={() =>
+                                            setFalsaAlarmaMotivo(selected ? '' : motivo)
+                                        }
+                                    >
+                                        <Text
+                                            style={[
+                                                styles.motivoChipText,
+                                                selected && styles.motivoChipTextSelected,
+                                            ]}
+                                        >
+                                            {motivo}
+                                        </Text>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
+
+                        <TextInput
+                            style={styles.cierreTextInput}
+                            placeholder="Detalle adicional del descarte (opcional si elegiste motivo)..."
+                            placeholderTextColor={colors.textMuted}
+                            multiline
+                            numberOfLines={3}
+                            value={falsaAlarmaDetalle}
+                            onChangeText={setFalsaAlarmaDetalle}
+                            editable={!submittingFalsaAlarma}
+                            textAlignVertical="top"
+                        />
+
+                        <TouchableOpacity
+                            style={[
+                                globalStyles.primaryButton,
+                                { paddingVertical: 14, marginTop: spacing.md, flexDirection: 'row' },
+                                (!falsaAlarmaFotoUri ||
+                                    getInformeFalsaAlarma().length < 5 ||
+                                    submittingFalsaAlarma) &&
+                                    globalStyles.primaryButtonDisabled,
+                            ]}
+                            activeOpacity={0.85}
+                            disabled={submittingFalsaAlarma}
+                            onPress={handleConfirmarFalsaAlarma}
+                        >
+                            {submittingFalsaAlarma && (
+                                <ActivityIndicator size="small" color={colors.surface} style={{ marginRight: 8 }} />
+                            )}
+                            <Text style={typography.buttonText}>
+                                {submittingFalsaAlarma ? 'Registrando acta...' : 'Confirmar Falsa Alarma'}
+                            </Text>
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -517,33 +993,57 @@ const styles = StyleSheet.create({
         letterSpacing: 0.5,
         marginBottom: spacing.sm,
     },
-    actionsGrid: {
+    readOnlyBanner: {
         flexDirection: 'row',
-        flexWrap: 'wrap',
+        alignItems: 'center',
+        gap: spacing.sm,
+        backgroundColor: '#FFFAEB',
+        borderWidth: 1,
+        borderColor: '#FEDF89',
+        borderRadius: radius.md,
+        padding: spacing.sm + 4,
+    },
+    readOnlyBannerText: {
+        flex: 1,
+        fontSize: 12.5,
+        fontWeight: '600',
+        color: '#B54708',
+        lineHeight: 18,
+    },
+    sequentialActionsRow: {
+        flexDirection: 'row',
         gap: spacing.sm,
     },
-    actionBtn: {
-        width: '48%',
-        flexGrow: 1,
+    sequentialBtn: {
+        flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
         gap: 6,
-        paddingVertical: 11,
+        paddingVertical: 12,
         paddingHorizontal: spacing.sm,
         borderRadius: radius.md,
-        borderWidth: 1.5,
     },
-    actionBtnActive: {
-        shadowColor: '#000',
-        shadowOpacity: 0.06,
-        shadowRadius: 4,
-        shadowOffset: { width: 0, height: 2 },
-        elevation: 2,
+    primaryActionBtn: {
+        backgroundColor: colors.info,
     },
-    actionBtnText: {
+    successActionBtn: {
+        backgroundColor: colors.success,
+    },
+    primaryActionBtnText: {
         fontSize: 13,
         fontWeight: '700',
+        color: colors.surface,
+    },
+    dangerOutlineBtn: {
+        backgroundColor: '#FFF5F5',
+        borderWidth: 1.5,
+        borderColor: '#FDA29B',
+    },
+    dangerOutlineBtnText: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#B42318',
     },
     infoCard: {
         backgroundColor: colors.surface,
@@ -831,6 +1331,195 @@ const styles = StyleSheet.create({
         fontSize: 13.5,
         color: colors.text,
         lineHeight: 20,
+    },
+    evidenceRealImage: {
+        width: '100%',
+        height: 190,
+        borderRadius: radius.sm,
+        marginBottom: spacing.sm,
+        backgroundColor: colors.surface,
+    },
+    cierrePhotoPreviewWrap: {
+        alignItems: 'center',
+        gap: spacing.sm,
+        marginBottom: spacing.md,
+    },
+    cierrePhotoPreview: {
+        width: '100%',
+        height: 170,
+        borderRadius: radius.md,
+        backgroundColor: colors.background,
+    },
+    retakePhotoBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 7,
+        borderRadius: radius.sm,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.background,
+    },
+    retakePhotoText: {
+        fontSize: 12.5,
+        fontWeight: '700',
+        color: colors.text,
+    },
+    cierreCameraBtn: {
+        height: 120,
+        borderRadius: radius.md,
+        borderWidth: 1.5,
+        borderStyle: 'dashed',
+        borderColor: colors.primary,
+        backgroundColor: '#FFF5F5',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: spacing.xs,
+        marginBottom: spacing.md,
+    },
+    cierreCameraText: {
+        fontSize: 13.5,
+        fontWeight: '700',
+        color: colors.primary,
+    },
+    cierreInputLabel: {
+        fontSize: 11,
+        fontWeight: '800',
+        color: colors.textMuted,
+        letterSpacing: 0.5,
+        marginBottom: spacing.xs,
+    },
+    cierreTextInput: {
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: radius.md,
+        backgroundColor: colors.background,
+        paddingHorizontal: spacing.md,
+        paddingVertical: spacing.sm + 2,
+        fontSize: 14,
+        color: colors.text,
+        minHeight: 84,
+    },
+    cierreSummaryBox: {
+        marginTop: spacing.md,
+        paddingTop: spacing.md,
+        borderTopWidth: 1,
+        borderTopColor: colors.border,
+        gap: spacing.xs + 2,
+    },
+    cierreSummaryLabel: {
+        fontSize: 11,
+        fontWeight: '800',
+        color: colors.textMuted,
+        letterSpacing: 0.5,
+    },
+    cierreSummaryImage: {
+        width: '100%',
+        height: 170,
+        borderRadius: radius.md,
+        backgroundColor: colors.background,
+    },
+    cierreSummaryText: {
+        fontSize: 13.5,
+        color: colors.text,
+        lineHeight: 20,
+    },
+    confirmBackdrop: {
+        flex: 1,
+        backgroundColor: 'rgba(16, 24, 40, 0.55)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: spacing.lg,
+    },
+    confirmCard: {
+        width: '100%',
+        backgroundColor: colors.surface,
+        borderRadius: radius.lg,
+        padding: spacing.lg,
+        alignItems: 'center',
+    },
+    confirmIconCircle: {
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        backgroundColor: '#D1E9FF',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: spacing.sm + 2,
+    },
+    confirmTitle: {
+        fontSize: 18,
+        fontWeight: '800',
+        color: colors.text,
+        marginBottom: spacing.xs,
+    },
+    confirmMessage: {
+        fontSize: 14,
+        color: colors.textMuted,
+        textAlign: 'center',
+        lineHeight: 20,
+        marginBottom: spacing.lg,
+    },
+    confirmButtonsRow: {
+        flexDirection: 'row',
+        gap: spacing.sm,
+        width: '100%',
+    },
+    confirmCancelBtn: {
+        flex: 1,
+        paddingVertical: 12,
+        borderRadius: radius.md,
+        borderWidth: 1,
+        borderColor: colors.border,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors.background,
+    },
+    confirmCancelText: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: colors.text,
+    },
+    confirmAcceptBtn: {
+        flex: 1,
+        paddingVertical: 12,
+        borderRadius: radius.md,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors.info,
+    },
+    confirmAcceptText: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: colors.surface,
+    },
+    motivosWrap: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: spacing.xs + 2,
+        marginBottom: spacing.sm + 2,
+    },
+    motivoChip: {
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: radius.round,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.background,
+    },
+    motivoChipSelected: {
+        borderColor: colors.primary,
+        backgroundColor: '#FFF5F5',
+    },
+    motivoChipText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: colors.textMuted,
+    },
+    motivoChipTextSelected: {
+        color: colors.primary,
+        fontWeight: '700',
     },
 });
 
