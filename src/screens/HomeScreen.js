@@ -15,9 +15,9 @@ function calcularDistanciaHaversineKm(lat1, lon1, lat2, lon2) {
     const a =
         Math.sin(dLat / 2) * Math.sin(dLat / 2) +
         Math.cos(toRad(lat1)) *
-            Math.cos(toRad(lat2)) *
-            Math.sin(dLon / 2) *
-            Math.sin(dLon / 2);
+        Math.cos(toRad(lat2)) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return radioTierraKm * c;
 }
@@ -117,7 +117,7 @@ export default function HomeScreen({ navigation }) {
                 <View style={styles.header}>
                     <View style={styles.statusPill}>
                         <View style={styles.statusDot} />
-                        <Text style={styles.statusText} numberOfLines={1}>
+                        <Text style={styles.statusText}>
                             OmniGuard Activo · {centralCercana || 'Buscando central cercana...'}
                         </Text>
                     </View>
@@ -209,8 +209,9 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(18, 183, 106, 0.12)',
         paddingHorizontal: spacing.md,
         paddingVertical: 6,
-        borderRadius: radius.round,
+        borderRadius: radius.md,
         marginBottom: spacing.md,
+        maxWidth: '100%',
     },
     statusDot: {
         width: 8,
@@ -223,6 +224,8 @@ const styles = StyleSheet.create({
         fontSize: 12,
         fontWeight: '700',
         color: colors.success,
+        flexShrink: 1,
+        lineHeight: 16,
     },
     title: {
         fontSize: 27,

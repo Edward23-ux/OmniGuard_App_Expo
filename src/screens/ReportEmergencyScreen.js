@@ -99,64 +99,48 @@ export default function ReportEmergencyScreen({ navigation }) {
     const { user } = useUser();
     const [selected, setSelected] = useState(null);
     const [coords, setCoords] = useState(DEFAULT_COORDS);
-    const [gpsLoading, setGpsLoading] = useState(true);
-    const [gpsStatusText, setGpsStatusText] = useState('Obteniendo ubicación GPS...');
     const [photoUri, setPhotoUri] = useState(null);
     const [submitting, setSubmitting] = useState(false);
 
     const obtenerUbicacionGps = useCallback(async () => {
-        setGpsLoading(true);
-        setGpsStatusText('Buscando señal GPS...');
         try {
             const { status } = await Location.requestForegroundPermissionsAsync();
             if (status !== 'granted') {
-                setCoords(DEFAULT_COORDS);
-                setGpsStatusText('Permiso denegado. Usando Lima Centro.');
-                Alert.alert(
-                    'Permiso de ubicación requerido',
-                    'OmniGuard necesita acceso al GPS para enviar tu ubicación exacta a los bomberos. Puedes habilitarlo en la configuración.',
-                    [
-                        { text: 'Cancelar', style: 'cancel' },
-                        { text: 'Abrir configuración', onPress: () => Linking.openSettings() },
-                    ]
-                );
                 return;
             }
 
+            // 1. Obtener de inmediato la última posición en caché del sistema (< 20ms)
             try {
-                const location = await Location.getCurrentPositionAsync({
-                    accuracy: Location.Accuracy.Balanced,
+                const lastKnown = await Location.getLastKnownPositionAsync({
+                    maxAge: 600000,
                 });
-                setCoords({
-                    latitud: location.coords.latitude,
-                    longitud: location.coords.longitude,
-                });
-                setGpsStatusText('Ubicación GPS capturada');
-            } catch (currentLocError) {
-                console.warn('[ReportEmergencyScreen] Error al obtener ubicación actual, intentando última conocida:', currentLocError);
-                let lastKnown = null;
-                try {
-                    lastKnown = await Location.getLastKnownPositionAsync();
-                } catch (lastKnownError) {
-                    console.warn('[ReportEmergencyScreen] Error al obtener última ubicación conocida:', lastKnownError);
-                }
                 if (lastKnown?.coords) {
                     setCoords({
                         latitud: lastKnown.coords.latitude,
                         longitud: lastKnown.coords.longitude,
                     });
-                    setGpsStatusText('Última ubicación GPS conocida');
-                } else {
-                    setCoords(DEFAULT_COORDS);
-                    setGpsStatusText('GPS no disponible. Usando Lima Centro.');
                 }
+            } catch {
+                // Continuar con lectura activa
+            }
+
+            // 2. Refinar ubicación con timeout corto (4s) para evitar bloqueos largos del GPS
+            const positionPromise = Location.getCurrentPositionAsync({
+                accuracy: Location.Accuracy.Low,
+            });
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('GPS_TIMEOUT')), 4000)
+            );
+
+            const location = await Promise.race([positionPromise, timeoutPromise]);
+            if (location?.coords) {
+                setCoords({
+                    latitud: location.coords.latitude,
+                    longitud: location.coords.longitude,
+                });
             }
         } catch (error) {
-            console.warn('[ReportEmergencyScreen] Error al obtener GPS:', error);
-            setCoords(DEFAULT_COORDS);
-            setGpsStatusText('GPS no disponible. Usando Lima Centro.');
-        } finally {
-            setGpsLoading(false);
+            console.warn('[ReportEmergencyScreen] Usando última ubicación disponible:', error.message);
         }
     }, []);
 
@@ -351,31 +335,6 @@ export default function ReportEmergencyScreen({ navigation }) {
                         })}
                     </View>
 
-                    {/* Tarjeta compacta de GPS en tiempo real */}
-                    <View style={styles.gpsCard}>
-                        <View style={styles.gpsInfoRow}>
-                            <Ionicons name="location-sharp" size={18} color={colors.primary} />
-                            <View style={{ flex: 1 }}>
-                                <Text style={styles.gpsTitle}>{gpsStatusText}</Text>
-                                <Text style={styles.gpsCoords}>
-                                    Lat: {coords.latitud.toFixed(5)} | Lng: {coords.longitud.toFixed(5)}
-                                </Text>
-                            </View>
-                            <TouchableOpacity
-                                style={styles.gpsRefreshBtn}
-                                activeOpacity={0.75}
-                                onPress={obtenerUbicacionGps}
-                                disabled={gpsLoading}
-                            >
-                                {gpsLoading ? (
-                                    <ActivityIndicator size="small" color={colors.primary} />
-                                ) : (
-                                    <Text style={styles.gpsRefreshText}>Actualizar GPS</Text>
-                                )}
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-
                     {/* Bloque opcional de Evidencia Fotográfica */}
                     <View style={styles.evidenceCard}>
                         <Text style={styles.evidenceSectionTitle}>Evidencia Fotográfica (opcional)</Text>
@@ -469,42 +428,6 @@ const styles = StyleSheet.create({
     iconContainer: { marginBottom: spacing.sm },
     typeLabel: { color: colors.text, fontSize: 13, fontWeight: '600', textAlign: 'center' },
     typeLabelSelected: { color: colors.primaryDark },
-    gpsCard: {
-        backgroundColor: colors.surface,
-        borderRadius: radius.md,
-        borderWidth: 1,
-        borderColor: colors.border,
-        padding: spacing.md,
-        marginBottom: spacing.md,
-    },
-    gpsInfoRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: spacing.sm,
-    },
-    gpsTitle: {
-        fontSize: 12.5,
-        fontWeight: '700',
-        color: colors.text,
-    },
-    gpsCoords: {
-        fontSize: 11.5,
-        color: colors.textMuted,
-        marginTop: 2,
-    },
-    gpsRefreshBtn: {
-        paddingHorizontal: spacing.sm + 2,
-        paddingVertical: 6,
-        borderRadius: radius.sm,
-        borderWidth: 1,
-        borderColor: colors.border,
-        backgroundColor: colors.background,
-    },
-    gpsRefreshText: {
-        fontSize: 11.5,
-        fontWeight: '700',
-        color: colors.primary,
-    },
     evidenceCard: {
         backgroundColor: colors.surface,
         borderRadius: radius.md,

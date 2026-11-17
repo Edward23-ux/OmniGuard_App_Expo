@@ -6,10 +6,11 @@ import {
     StyleSheet,
     Platform,
     Alert,
+    Linking,
     ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
 import { globalStyles, colors, spacing, typography, radius } from '../styles/globalStyles';
@@ -45,9 +46,138 @@ function mapEstadoAZona(row) {
 export default function MonitorScreen({ navigation }) {
     const [zones, setZones] = useState([]);
     const [userCoords, setUserCoords] = useState(null);
-    const [locating, setLocating] = useState(false);
+    const [gpsLoading, setGpsLoading] = useState(true);
+    const [gpsStatusText, setGpsStatusText] = useState('Detectando ubicación del dispositivo...');
     const webViewRef = useRef(null);
     const iframeRef = useRef(null);
+    const watchSubRef = useRef(null);
+
+    const enviarUbicacionAlMapa = useCallback((lat, lng, shouldFly = true) => {
+        if (typeof lat !== 'number' || typeof lng !== 'number') return;
+        if (Platform.OS === 'web') {
+            iframeRef.current?.contentWindow?.postMessage(
+                { type: 'CENTER_USER', lat, lng, shouldFly },
+                '*'
+            );
+        } else {
+            const jsCode = `if (window.centrarEnUsuario) { window.centrarEnUsuario(${lat}, ${lng}, ${shouldFly}); } true;`;
+            webViewRef.current?.injectJavaScript(jsCode);
+        }
+    }, []);
+
+    const actualizarUbicacionDispositivo = useCallback(
+        async (mostrarAlertaPermiso = false) => {
+            setGpsLoading(true);
+            setGpsStatusText('Sincronizando señal GPS...');
+
+            try {
+                const { status } = await Location.requestForegroundPermissionsAsync();
+                if (status !== 'granted') {
+                    setGpsStatusText('Permiso de ubicación no concedido');
+                    if (mostrarAlertaPermiso) {
+                        Alert.alert(
+                            'Permiso de ubicación requerido',
+                            'Habilita el acceso al GPS para visualizar tu Latitud y Longitud en tiempo real.',
+                            [
+                                { text: 'Cancelar', style: 'cancel' },
+                                { text: 'Abrir configuración', onPress: () => Linking.openSettings() },
+                            ]
+                        );
+                    }
+                    return;
+                }
+
+                // PASO 1: Lectura instantánea (< 20ms) de la caché del sistema operativo
+                let yaTieneCoordenadas = false;
+                try {
+                    const lastKnown = await Location.getLastKnownPositionAsync({
+                        maxAge: 600000,
+                    });
+                    if (lastKnown?.coords) {
+                        const lat = lastKnown.coords.latitude;
+                        const lng = lastKnown.coords.longitude;
+                        setUserCoords({ lat, lng });
+                        setGpsStatusText('Ubicación GPS activa');
+                        enviarUbicacionAlMapa(lat, lng, true);
+                        yaTieneCoordenadas = true;
+                        setGpsLoading(false);
+                    }
+                } catch {
+                    // Continuar con lectura de hardware
+                }
+
+                // PASO 2: Lectura fresca acotada a máximo 3.5 segundos para no bloquear la UI
+                const positionPromise = Location.getCurrentPositionAsync({
+                    accuracy: Location.Accuracy.Balanced,
+                });
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('GPS_TIMEOUT')), 3500)
+                );
+
+                const position = await Promise.race([positionPromise, timeoutPromise]);
+                if (position?.coords) {
+                    const lat = position.coords.latitude;
+                    const lng = position.coords.longitude;
+                    setUserCoords({ lat, lng });
+                    setGpsStatusText('Ubicación GPS actualizada en tiempo real');
+                    enviarUbicacionAlMapa(lat, lng, !yaTieneCoordenadas);
+                }
+            } catch (err) {
+                if (!userCoords) {
+                    setGpsStatusText('Señal GPS débil. Reintenta en un lugar despejado.');
+                }
+            } finally {
+                setGpsLoading(false);
+            }
+        },
+        [enviarUbicacionAlMapa, userCoords]
+    );
+
+    // Suscripción automática al montar la pantalla para actualizar Lat/Lng apenas se conceda el permiso
+    useEffect(() => {
+        let isMounted = true;
+
+        const iniciarMonitoreoGps = async () => {
+            await actualizarUbicacionDispositivo(false);
+
+            try {
+                const { status } = await Location.getForegroundPermissionsAsync();
+                if (status === 'granted' && isMounted) {
+                    watchSubRef.current = await Location.watchPositionAsync(
+                        {
+                            accuracy: Location.Accuracy.Balanced,
+                            timeInterval: 8000,
+                            distanceInterval: 10,
+                        },
+                        (loc) => {
+                            if (!isMounted || !loc?.coords) return;
+                            const lat = loc.coords.latitude;
+                            const lng = loc.coords.longitude;
+                            setUserCoords((prev) => {
+                                const esPrimeraVez = !prev;
+                                enviarUbicacionAlMapa(lat, lng, esPrimeraVez);
+                                return { lat, lng };
+                            });
+                            setGpsStatusText('Ubicación GPS en tiempo real');
+                            setGpsLoading(false);
+                        }
+                    );
+                }
+            } catch {
+                // Ignorar si watchPositionAsync no está soportado en entorno específico
+            }
+        };
+
+        iniciarMonitoreoGps();
+
+        return () => {
+            isMounted = false;
+            if (watchSubRef.current) {
+                watchSubRef.current.remove();
+                watchSubRef.current = null;
+            }
+        };
+    }, []);
 
     const cargarZonasReales = useCallback(async () => {
         try {
@@ -114,45 +244,6 @@ export default function MonitorScreen({ navigation }) {
         };
     }, [cargarZonasReales]);
 
-    const handleCenterMyLocation = async () => {
-        if (locating) return;
-        setLocating(true);
-        try {
-            const { status } = await Location.requestForegroundPermissionsAsync();
-            if (status !== 'granted') {
-                Alert.alert(
-                    'Permiso de ubicación requerido',
-                    'Habilita el acceso al GPS para centrar el mapa en tu ubicación actual.'
-                );
-                return;
-            }
-
-            const position = await Location.getCurrentPositionAsync({
-                accuracy: Location.Accuracy.Balanced,
-            });
-            const lat = position?.coords?.latitude;
-            const lng = position?.coords?.longitude;
-            if (typeof lat !== 'number' || typeof lng !== 'number') return;
-
-            setUserCoords({ lat, lng });
-
-            if (Platform.OS === 'web') {
-                iframeRef.current?.contentWindow?.postMessage(
-                    { type: 'CENTER_USER', lat, lng },
-                    '*'
-                );
-            } else {
-                const jsCode = `if (window.centrarEnUsuario) { window.centrarEnUsuario(${lat}, ${lng}); } true;`;
-                webViewRef.current?.injectJavaScript(jsCode);
-            }
-        } catch (err) {
-            console.warn('[MonitorScreen] No se pudo obtener la ubicación actual:', err.message);
-            Alert.alert('Ubicación no disponible', 'No se pudo obtener tu posición GPS actual.');
-        } finally {
-            setLocating(false);
-        }
-    };
-
     const handleBack = () => {
         if (navigation.canGoBack()) {
             navigation.goBack();
@@ -161,6 +252,7 @@ export default function MonitorScreen({ navigation }) {
         }
     };
 
+    // IMPORTANTE: No incluimos userCoords en las dependencias del HTML para evitar recargar el WebView completo
     const heatmapHtml = useMemo(
         () => `
 <!DOCTYPE html>
@@ -178,12 +270,9 @@ export default function MonitorScreen({ navigation }) {
 <body>
     <div id="map"></div>
     <script>
-        var initialCenter = ${JSON.stringify(
-            userCoords ? [userCoords.lat, userCoords.lng] : [-12.0805, -77.0365]
-        )};
         var map = L.map('map', {
-            center: initialCenter,
-            zoom: ${userCoords ? 15 : 13},
+            center: [-12.0805, -77.0365],
+            zoom: 13,
             zoomControl: true
         });
 
@@ -205,8 +294,10 @@ export default function MonitorScreen({ navigation }) {
         });
 
         var userMarker = null;
-        window.centrarEnUsuario = function(lat, lng) {
-            map.setView([lat, lng], 15, { animate: true });
+        window.centrarEnUsuario = function(lat, lng, shouldFly) {
+            if (shouldFly !== false) {
+                map.setView([lat, lng], 15, { animate: true });
+            }
             if (userMarker) {
                 userMarker.setLatLng([lat, lng]);
             } else {
@@ -221,21 +312,16 @@ export default function MonitorScreen({ navigation }) {
             }
         };
 
-        var savedUser = ${JSON.stringify(userCoords)};
-        if (savedUser) {
-            window.centrarEnUsuario(savedUser.lat, savedUser.lng);
-        }
-
         window.addEventListener('message', function(event) {
             if (event.data && event.data.type === 'CENTER_USER') {
-                window.centrarEnUsuario(event.data.lat, event.data.lng);
+                window.centrarEnUsuario(event.data.lat, event.data.lng, event.data.shouldFly);
             }
         });
     </script>
 </body>
 </html>
         `,
-        [zones, userCoords]
+        [zones]
     );
 
     return (
@@ -246,16 +332,35 @@ export default function MonitorScreen({ navigation }) {
                     <TouchableOpacity onPress={handleBack} hitSlop={10}>
                         <Ionicons name="arrow-back" size={24} color={colors.text} />
                     </TouchableOpacity>
-                    <Text style={typography.h2}>Monitor · Mapa de Calor</Text>
+                    <Text style={typography.h2}>Monitor de Emergencias</Text>
                     <View style={{ width: 24 }} />
                 </View>
 
-                {/* Aviso de privacidad e integridad */}
-                <View style={styles.privacyBanner}>
-                    <MaterialCommunityIcons name="shield-lock-outline" size={20} color={colors.primary} />
-                    <Text style={styles.privacyText}>
-                        Por integridad y protección de datos sensibles, las emergencias se muestran únicamente mediante zonas de calor anónimas.
-                    </Text>
+                {/* Tarjeta compacta de GPS en tiempo real (Latitud y Longitud del usuario) */}
+                <View style={styles.gpsCard}>
+                    <View style={styles.gpsInfoRow}>
+                        <Ionicons name="location-sharp" size={18} color={colors.primary} />
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.gpsTitle}>{gpsStatusText}</Text>
+                            <Text style={styles.gpsCoords}>
+                                {userCoords
+                                    ? `Lat: ${userCoords.lat.toFixed(5)} | Lng: ${userCoords.lng.toFixed(5)}`
+                                    : 'Obteniendo coordenadas de tu dispositivo...'}
+                            </Text>
+                        </View>
+                        <TouchableOpacity
+                            style={styles.gpsRefreshBtn}
+                            activeOpacity={0.75}
+                            onPress={() => actualizarUbicacionDispositivo(true)}
+                            disabled={gpsLoading}
+                        >
+                            {gpsLoading ? (
+                                <ActivityIndicator size="small" color={colors.primary} />
+                            ) : (
+                                <Text style={styles.gpsRefreshText}>Actualizar GPS</Text>
+                            )}
+                        </TouchableOpacity>
+                    </View>
                 </View>
 
                 {/* Contenedor del Mapa de Calor Interactivo */}
@@ -278,6 +383,11 @@ export default function MonitorScreen({ navigation }) {
                                 title="Mapa de Calor Ciudadano"
                                 srcDoc={heatmapHtml}
                                 style={{ width: '100%', height: '100%', border: 'none' }}
+                                onLoad={() => {
+                                    if (userCoords) {
+                                        enviarUbicacionAlMapa(userCoords.lat, userCoords.lng, true);
+                                    }
+                                }}
                             />
                         ) : (
                             <WebView
@@ -288,16 +398,21 @@ export default function MonitorScreen({ navigation }) {
                                 scrollEnabled={false}
                                 javaScriptEnabled={true}
                                 domStorageEnabled={true}
+                                onLoadEnd={() => {
+                                    if (userCoords) {
+                                        enviarUbicacionAlMapa(userCoords.lat, userCoords.lng, true);
+                                    }
+                                }}
                             />
                         )}
 
                         <TouchableOpacity
                             style={styles.locateButton}
                             activeOpacity={0.85}
-                            onPress={handleCenterMyLocation}
-                            disabled={locating}
+                            onPress={() => actualizarUbicacionDispositivo(true)}
+                            disabled={gpsLoading}
                         >
-                            {locating ? (
+                            {gpsLoading ? (
                                 <ActivityIndicator size="small" color={colors.primary} />
                             ) : (
                                 <Ionicons name="locate" size={22} color={colors.primary} />
@@ -334,22 +449,41 @@ const styles = StyleSheet.create({
         paddingTop: spacing.lg,
         paddingBottom: spacing.md,
     },
-    privacyBanner: {
+    gpsCard: {
+        backgroundColor: colors.surface,
+        borderRadius: radius.md,
+        borderWidth: 1,
+        borderColor: colors.border,
+        padding: spacing.md,
+        marginBottom: spacing.md,
+    },
+    gpsInfoRow: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: spacing.sm,
-        backgroundColor: '#FFF5F5',
-        borderWidth: 1,
-        borderColor: '#FDA29B',
-        borderRadius: radius.md,
-        padding: spacing.sm + 4,
-        marginBottom: spacing.md,
     },
-    privacyText: {
-        flex: 1,
+    gpsTitle: {
         fontSize: 12.5,
+        fontWeight: '700',
         color: colors.text,
-        lineHeight: 18,
+    },
+    gpsCoords: {
+        fontSize: 11.5,
+        color: colors.textMuted,
+        marginTop: 2,
+    },
+    gpsRefreshBtn: {
+        paddingHorizontal: spacing.sm + 2,
+        paddingVertical: 6,
+        borderRadius: radius.sm,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.background,
+    },
+    gpsRefreshText: {
+        fontSize: 11.5,
+        fontWeight: '700',
+        color: colors.primary,
     },
     mapCard: {
         flex: 1,
