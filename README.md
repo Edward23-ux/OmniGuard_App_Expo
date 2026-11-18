@@ -105,28 +105,6 @@ La primera carga automatizada requiere que la app exista en Play Console y que E
 
 Más detalles en las guías de Expo para [generar APK](https://docs.expo.dev/build-reference/apk/), [crear un build Android de producción](https://docs.expo.dev/tutorial/eas/android-production-build/) y [enviar a Google Play con EAS Submit](https://docs.expo.dev/submit/android/).
 
-## Estructura del proyecto
-
-```text
-.
-├── App.js                       # Proveedores globales y contenedor de navegación
-├── index.js                     # Punto de entrada Expo
-├── app.json                     # Configuración de Expo y Android
-├── eas.json                     # Perfiles de compilación y envío
-├── src/
-│   ├── context/
-│   │   └── UserContext.js       # Sesión y consulta del DNI
-│   ├── navigation/
-│   │   ├── AppNavigator.js      # Navegación principal tipo stack
-│   │   └── MainTabNavigator.js  # Pestañas inferiores
-│   ├── screens/                 # Pantallas de la app
-│   ├── services/
-│   │   └── reportStorage.js     # Persistencia local de reportes
-│   └── styles/
-│       └── globalStyles.js      # Colores, espacios y estilos compartidos
-└── assets/                      # Iconos, splash y favicon
-```
-
 ## Seguridad y configuración
 
 La consulta RENIEC se realiza desde el cliente móvil. Una credencial incluida en el código de una app puede extraerse del paquete distribuido; antes de una publicación real, se recomienda revocar cualquier clave expuesta y mover la consulta a un backend que proteja la credencial. No publiques claves, contraseñas ni archivos de credenciales en el repositorio.
