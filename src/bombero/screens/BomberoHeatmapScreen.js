@@ -209,7 +209,6 @@ export default function BomberoHeatmapScreen({ navigation }) {
                     hitSlop={10}
                 >
                     <Ionicons name="arrow-back" size={22} color={colors.text} />
-                    <Text style={styles.backText}>Central</Text>
                 </TouchableOpacity>
                 <Text style={typography.h2}>Mapa de Calor</Text>
                 <View style={{ width: 60 }} />

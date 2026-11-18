@@ -259,13 +259,42 @@ export default function BomberoEmergencyDetailScreen({ route, navigation }) {
         }
     };
 
+    const cleanAddress = String(emergency.direccion || '')
+        .replace(/\s*\(Geolocalizado\)\s*/gi, ' ')
+        .replace(/Lat:\s*([-\d.]+),\s*Lng:\s*([-\d.]+)/gi, '$1, $2')
+        .trim();
+
     const handleOpenMaps = () => {
-        const lat = emergency.coordenadas?.lat ?? -12.0689;
-        const lng = emergency.coordenadas?.lng ?? -77.0361;
-        const query = encodeURIComponent(emergency.direccion || `${lat},${lng}`);
-        const url = `https://www.google.com/maps/search/?api=1&query=${query}`;
+        const rawLat = Number(emergency.coordenadas?.lat);
+        const rawLng = Number(emergency.coordenadas?.lng);
+        const hasValidCoords =
+            Number.isFinite(rawLat) &&
+            Number.isFinite(rawLng) &&
+            rawLat >= -90 &&
+            rawLat <= 90 &&
+            rawLng >= -180 &&
+            rawLng <= 180;
+
+        if (!hasValidCoords && !cleanAddress) {
+            Alert.alert(
+                'Ubicación no disponible',
+                'Esta emergencia no cuenta con coordenadas ni una dirección válida para abrir la ruta GPS.'
+            );
+            return;
+        }
+
+        const destination = hasValidCoords
+            ? `${rawLat},${rawLng}`
+            : encodeURIComponent(cleanAddress);
+        const url = `https://www.google.com/maps/dir/?api=1&destination=${destination}&travelmode=driving`;
+
         Linking.openURL(url).catch(() => {
-            Alert.alert('Navegación GPS', `Coordenadas: ${lat}, ${lng}\n${emergency.direccion}`);
+            Alert.alert(
+                'Navegación GPS',
+                hasValidCoords
+                    ? `Coordenadas: ${rawLat}, ${rawLng}${cleanAddress ? `\n${cleanAddress}` : ''}`
+                    : cleanAddress
+            );
         });
     };
 
@@ -286,7 +315,6 @@ export default function BomberoEmergencyDetailScreen({ route, navigation }) {
                     hitSlop={10}
                 >
                     <Ionicons name="arrow-back" size={22} color={colors.text} />
-                    <Text style={styles.backBtnText}>Emergencias</Text>
                 </TouchableOpacity>
 
                 <Text style={styles.navBarTitle}>Detalle de Emergencia</Text>
@@ -401,7 +429,7 @@ export default function BomberoEmergencyDetailScreen({ route, navigation }) {
                 <View style={styles.infoCard}>
                     <Text style={styles.cardSectionLabel}>DIRECCIÓN APROXIMADA</Text>
                     <Text style={styles.addressMainText}>
-                        {emergency.direccion || 'Calle Manuel Nicolás Corpancho, Lima'}
+                        {cleanAddress || 'Calle Manuel Nicolás Corpancho, Lima'}
                     </Text>
                     {!!emergency.referencia && (
                         <Text style={styles.referenceText}>{emergency.referencia}</Text>
@@ -429,7 +457,7 @@ export default function BomberoEmergencyDetailScreen({ route, navigation }) {
                         lat={emergency.coordenadas?.lat ?? -12.0689}
                         lng={emergency.coordenadas?.lng ?? -77.0361}
                         titulo={emergency.tipo || 'Emergencia'}
-                        direccion={emergency.direccion || 'Calle Manuel Nicolás Corpancho, Lima'}
+                        direccion={cleanAddress || 'Calle Manuel Nicolás Corpancho, Lima'}
                         onMapTouchStart={() => setIsTouchingMap(true)}
                         onMapTouchEnd={() => setIsTouchingMap(false)}
                     />
@@ -738,7 +766,7 @@ export default function BomberoEmergencyDetailScreen({ route, navigation }) {
                                 globalStyles.primaryButton,
                                 { paddingVertical: 14, marginTop: spacing.md, flexDirection: 'row' },
                                 (!cierreFotoUri || cierreInforme.trim().length < 5 || submittingCierre) &&
-                                    globalStyles.primaryButtonDisabled,
+                                globalStyles.primaryButtonDisabled,
                             ]}
                             activeOpacity={0.85}
                             disabled={submittingCierre}
@@ -899,7 +927,7 @@ export default function BomberoEmergencyDetailScreen({ route, navigation }) {
                                 (!falsaAlarmaFotoUri ||
                                     getInformeFalsaAlarma().length < 5 ||
                                     submittingFalsaAlarma) &&
-                                    globalStyles.primaryButtonDisabled,
+                                globalStyles.primaryButtonDisabled,
                             ]}
                             activeOpacity={0.85}
                             disabled={submittingFalsaAlarma}

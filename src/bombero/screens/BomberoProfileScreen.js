@@ -48,7 +48,7 @@ export default function BomberoProfileScreen({ navigation }) {
                 >
                     <Ionicons name="arrow-back" size={22} color={colors.text} />
                 </TouchableOpacity>
-                <Text style={typography.h2}>Mi Perfil · Bombero</Text>
+                <Text style={typography.h2}>Bombero</Text>
                 <View style={{ width: 24 }} />
             </View>
 
@@ -77,7 +77,7 @@ export default function BomberoProfileScreen({ navigation }) {
                     <View style={[styles.activeStatusPill, !estaActivo && styles.inactiveStatusPill]}>
                         <View style={[styles.activeDot, !estaActivo && styles.inactiveDot]} />
                         <Text style={[styles.activeStatusText, !estaActivo && styles.inactiveStatusText]}>
-                            {`${estaActivo ? 'En Servicio Activo' : 'Fuera de Servicio'} · ${companiaNombre}`}
+                            {`${estaActivo ? 'Activo' : 'Fuera de Servicio'} · ${companiaNombre}`}
                         </Text>
                     </View>
                 </View>
@@ -127,34 +127,6 @@ export default function BomberoProfileScreen({ navigation }) {
                             </Text>
                             <Text style={styles.subInfoText}>
                                 {user?.direccionEstacion || 'Central de Bomberos'}
-                            </Text>
-                        </View>
-                    </View>
-
-                    <View style={styles.divider} />
-
-                    <View style={styles.infoRow}>
-                        <View
-                            style={[
-                                styles.infoIconBox,
-                                { backgroundColor: estaActivo ? '#ECFDF3' : '#F2F4F7' },
-                            ]}
-                        >
-                            <Ionicons
-                                name="time-outline"
-                                size={20}
-                                color={estaActivo ? colors.success : colors.textMuted}
-                            />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                            <Text style={typography.caption}>Turno Operativo</Text>
-                            <Text
-                                style={[
-                                    styles.infoValue,
-                                    { color: estaActivo ? colors.success : colors.textMuted },
-                                ]}
-                            >
-                                {estaActivo ? 'En Servicio Activo' : 'Inactivo / Fuera de Turno'}
                             </Text>
                         </View>
                     </View>

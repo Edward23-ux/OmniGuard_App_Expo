@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
     View,
     Text,
     TextInput,
     TouchableOpacity,
     KeyboardAvoidingView,
+    ScrollView,
     Platform,
     StyleSheet,
     ActivityIndicator,
@@ -20,8 +21,21 @@ export default function LoginScreen({ navigation }) {
     const [dni, setDni] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+    const scrollViewRef = useRef(null);
 
     const isValidDni = dni.length === 8;
+
+    const scrollToInput = () => {
+        setTimeout(() => {
+            scrollViewRef.current?.scrollToEnd({ animated: true });
+        }, 80);
+    };
+
+    useEffect(() => {
+        const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+        const sub = Keyboard.addListener(showEvent, scrollToInput);
+        return () => sub.remove();
+    }, []);
 
     const handleDniChange = (text) => {
         const onlyDigits = text.replace(/[^0-9]/g, '').slice(0, 8);
@@ -55,7 +69,8 @@ export default function LoginScreen({ navigation }) {
         <SafeAreaView style={globalStyles.screen}>
             <KeyboardAvoidingView
                 style={{ flex: 1 }}
-                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                behavior="padding"
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 12}
             >
                 {/* Botón superior derecho "Soy bombero" */}
                 <View style={styles.topHeader}>
@@ -69,7 +84,13 @@ export default function LoginScreen({ navigation }) {
                     </TouchableOpacity>
                 </View>
 
-                <View style={styles.content}>
+                <ScrollView
+                    ref={scrollViewRef}
+                    contentContainerStyle={styles.scrollContent}
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator={false}
+                    bounces={false}
+                >
                     <View style={styles.logoWrap}>
                         <View style={styles.logoCircle}>
                             <MaterialCommunityIcons name="shield-alert" size={40} color={colors.surface} />
@@ -94,6 +115,7 @@ export default function LoginScreen({ navigation }) {
                             maxLength={8}
                             value={dni}
                             onChangeText={handleDniChange}
+                            onFocus={scrollToInput}
                             textAlign="center"
                             editable={!loading}
                         />
@@ -116,7 +138,7 @@ export default function LoginScreen({ navigation }) {
                             )}
                         </TouchableOpacity>
                     </View>
-                </View>
+                </ScrollView>
             </KeyboardAvoidingView>
         </SafeAreaView>
     );
@@ -150,10 +172,11 @@ const styles = StyleSheet.create({
         fontWeight: '700',
         color: colors.primary,
     },
-    content: {
-        flex: 1,
+    scrollContent: {
+        flexGrow: 1,
         justifyContent: 'center',
         paddingHorizontal: spacing.lg,
+        paddingVertical: spacing.lg,
     },
     logoWrap: {
         alignItems: 'center',

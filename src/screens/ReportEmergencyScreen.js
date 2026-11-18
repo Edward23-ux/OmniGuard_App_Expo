@@ -10,6 +10,7 @@ import {
     Image,
     Linking,
     ActivityIndicator,
+    Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -101,6 +102,8 @@ export default function ReportEmergencyScreen({ navigation }) {
     const [coords, setCoords] = useState(DEFAULT_COORDS);
     const [photoUri, setPhotoUri] = useState(null);
     const [submitting, setSubmitting] = useState(false);
+    const [successModalVisible, setSuccessModalVisible] = useState(false);
+    const [reportedType, setReportedType] = useState(null);
 
     const obtenerUbicacionGps = useCallback(async () => {
         try {
@@ -281,22 +284,19 @@ export default function ReportEmergencyScreen({ navigation }) {
                 console.warn('[ReportEmergencyScreen] No se pudo mostrar notificación local:', notifError);
             }
 
-            if (Platform.OS === 'web') {
-                alert(`Se registró tu emergencia de tipo "${tipo.label}". Un bombero revisará tu reporte.`);
-                navigation.navigate('MainTabs', { screen: 'MisReportes' });
-            } else {
-                Alert.alert(
-                    'Reporte enviado',
-                    `Se registró tu emergencia de tipo "${tipo.label}". Un bombero revisará tu reporte.`,
-                    [{ text: 'OK', onPress: () => navigation.navigate('MainTabs', { screen: 'MisReportes' }) }]
-                );
-            }
+            setReportedType(tipo);
+            setSuccessModalVisible(true);
         } catch (error) {
             console.error('[ReportEmergencyScreen] Error al guardar reporte:', error);
             Alert.alert('Error', 'No se pudo guardar el reporte en la memoria local.');
         } finally {
             setSubmitting(false);
         }
+    };
+
+    const handleAcceptSuccess = () => {
+        setSuccessModalVisible(false);
+        navigation.navigate('MainTabs', { screen: 'MisReportes' });
     };
 
     return (
@@ -394,6 +394,54 @@ export default function ReportEmergencyScreen({ navigation }) {
                     </Text>
                 </TouchableOpacity>
             </View>
+
+            {/* Modal de confirmación con diseño OmniGuard */}
+            <Modal
+                visible={successModalVisible}
+                transparent
+                animationType="fade"
+                onRequestClose={handleAcceptSuccess}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalCard}>
+                        {/* Círculo con ícono de éxito */}
+                        <View style={styles.successIconOuter}>
+                            <View style={styles.successIconInner}>
+                                <Ionicons name="checkmark-sharp" size={32} color={colors.surface} />
+                            </View>
+                        </View>
+
+                        <Text style={styles.modalTitle}>¡Reporte Enviado!</Text>
+
+                        {reportedType && (
+                            <View style={styles.emergencyTag}>
+                                <View style={{ marginRight: 6 }}>
+                                    {iconoTipo[reportedType.label]}
+                                </View>
+                                <Text style={styles.emergencyTagText}>{reportedType.label}</Text>
+                            </View>
+                        )}
+
+                        <Text style={styles.modalMessage}>
+                            Se registró tu emergencia correctamente con tu ubicación en tiempo real. Un operador de la central revisará tu reporte de inmediato.
+                        </Text>
+
+                        <View style={styles.dispatchPill}>
+                            <View style={styles.dispatchDot} />
+                            <Text style={styles.dispatchText}>Central 116 notificada</Text>
+                        </View>
+
+                        <TouchableOpacity
+                            style={[globalStyles.primaryButton, styles.modalButton]}
+                            activeOpacity={0.85}
+                            onPress={handleAcceptSuccess}
+                        >
+                            <Text style={typography.buttonText}>Ver en Mis Reportes</Text>
+                            <Ionicons name="arrow-forward" size={18} color={colors.surface} style={{ marginLeft: 6 }} />
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -488,4 +536,102 @@ const styles = StyleSheet.create({
         fontWeight: '700',
     },
     submitButton: { flexDirection: 'row', marginBottom: spacing.lg },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(16, 24, 40, 0.65)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: spacing.lg,
+    },
+    modalCard: {
+        width: '100%',
+        maxWidth: 360,
+        backgroundColor: colors.surface,
+        borderRadius: radius.lg + 4,
+        paddingHorizontal: spacing.lg,
+        paddingTop: spacing.xl,
+        paddingBottom: spacing.lg,
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.15,
+        shadowRadius: 20,
+        elevation: 10,
+    },
+    successIconOuter: {
+        width: 76,
+        height: 76,
+        borderRadius: 38,
+        backgroundColor: 'rgba(18, 183, 106, 0.12)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: spacing.md,
+    },
+    successIconInner: {
+        width: 54,
+        height: 54,
+        borderRadius: 27,
+        backgroundColor: colors.success,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    modalTitle: {
+        fontSize: 22,
+        fontWeight: '800',
+        color: colors.text,
+        marginBottom: spacing.xs,
+        textAlign: 'center',
+    },
+    emergencyTag: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(239, 59, 78, 0.08)',
+        borderWidth: 1,
+        borderColor: 'rgba(239, 59, 78, 0.25)',
+        paddingHorizontal: spacing.md,
+        paddingVertical: 6,
+        borderRadius: radius.round,
+        marginVertical: spacing.sm,
+    },
+    emergencyTagText: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: colors.primary,
+    },
+    modalMessage: {
+        fontSize: 14,
+        color: colors.textMuted,
+        textAlign: 'center',
+        lineHeight: 20,
+        marginTop: 4,
+        marginBottom: spacing.md,
+    },
+    dispatchPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(18, 183, 106, 0.08)',
+        paddingHorizontal: spacing.sm + 4,
+        paddingVertical: 5,
+        borderRadius: radius.round,
+        marginBottom: spacing.lg,
+    },
+    dispatchDot: {
+        width: 7,
+        height: 7,
+        borderRadius: 4,
+        backgroundColor: colors.success,
+        marginRight: 6,
+    },
+    dispatchText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: colors.success,
+    },
+    modalButton: {
+        width: '100%',
+        flexDirection: 'row',
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingVertical: 14,
+    },
 });

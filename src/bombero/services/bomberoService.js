@@ -155,8 +155,20 @@ function formatSupabaseDate(isoString) {
  */
 function mapSupabaseEmergencyRow(row) {
     const { fecha, fechaCorta } = formatSupabaseDate(row.creado_en);
-    const lat = Number(row.latitud ?? -12.0464);
-    const lng = Number(row.longitud ?? -77.0428);
+    const rawLat = Number(row.latitud);
+    const rawLng = Number(row.longitud);
+    const hasValidCoords =
+        Number.isFinite(rawLat) &&
+        Number.isFinite(rawLng) &&
+        rawLat >= -90 &&
+        rawLat <= 90 &&
+        rawLng >= -180 &&
+        rawLng <= 180;
+    const lat = hasValidCoords ? rawLat : -12.0464;
+    const lng = hasValidCoords ? rawLng : -77.0428;
+    const cleanDireccion = String(row.direccion || '')
+        .replace(/\s*\(Geolocalizado\)\s*/gi, ' ')
+        .trim();
     const usuarioObj = Array.isArray(row.usuarios) ? row.usuarios[0] : row.usuarios;
     const nombres = [usuarioObj?.nombres, usuarioObj?.apellidos].filter(Boolean).join(' ').trim();
     const nombreReportante = nombres || 'Ciudadano Verificado';
@@ -169,7 +181,7 @@ function mapSupabaseEmergencyRow(row) {
         estado: estadoNormalizado,
         fecha,
         fechaCorta,
-        direccion: row.direccion || `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)} (Geolocalizado)`,
+        direccion: cleanDireccion || `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
         referencia: row.referencia || 'Reporte enviado desde plataforma ciudadana OmniGuard',
         coordenadas: { lat, lng },
         testigosCount: row.testigos ?? 1,

@@ -112,23 +112,46 @@ export function UserProvider({ children }) {
         let apellidos = 'Verificado';
 
         if (RENIEC_API_KEY) {
-            const response = await fetch(`https://api.decolecta.com/v1/reniec/dni?numero=${dniLimpio}`, {
-                headers: {
-                    Authorization: `Bearer ${RENIEC_API_KEY}`,
-                    Accept: 'application/json',
-                },
-            });
+            try {
+                const response = await fetch(`https://api.decolecta.com/v1/reniec/dni?numero=${dniLimpio}`, {
+                    headers: {
+                        Authorization: `Bearer ${RENIEC_API_KEY}`,
+                        Accept: 'application/json',
+                    },
+                });
 
-            const data = await response.json();
+                const data = await response.json();
 
-            if (!response.ok || data.error) {
-                throw new Error(data.error || 'DNI no encontrado o error en la consulta.');
+                if (!response.ok || data.error) {
+                    throw new Error(data.error || 'DNI no encontrado o error en la consulta.');
+                }
+
+                datosReniec = data;
+                const separados = separarNombresYApellidos(data);
+                nombres = separados.nombres;
+                apellidos = separados.apellidos;
+            } catch (reniecError) {
+                console.warn('[UserContext] Error al consultar API Decolecta RENIEC (SSL/Red):', reniecError.message);
+
+                // Si ya existe en la base de datos de Supabase, recuperamos sus nombres y apellidos reales
+                try {
+                    const { data: usuarioExistente } = await supabase
+                        .from('usuarios')
+                        .select('*')
+                        .eq('dni', dniLimpio)
+                        .maybeSingle();
+
+                    if (usuarioExistente?.nombres) {
+                        nombres = usuarioExistente.nombres;
+                        apellidos = usuarioExistente.apellidos || '';
+                    } else if (reniecError.message && !reniecError.message.includes('SSLHandshakeException') && !reniecError.message.includes('fetch failed')) {
+                        // Si fue un error de negocio real (DNI inexistente), lanzamos el error
+                        throw reniecError;
+                    }
+                } catch (dbCheckError) {
+                    console.warn('[UserContext] Error verificando usuario local:', dbCheckError.message);
+                }
             }
-
-            datosReniec = data;
-            const separados = separarNombresYApellidos(data);
-            nombres = separados.nombres;
-            apellidos = separados.apellidos;
         }
 
         const usuarioDb = await sincronizarUsuarioSupabase(

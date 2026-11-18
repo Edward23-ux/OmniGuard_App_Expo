@@ -22,58 +22,129 @@ function calcularDistanciaHaversineKm(lat1, lon1, lat2, lon2) {
     return radioTierraKm * c;
 }
 
+function encontrarCompaniaMasCercana(lat, lng, companias) {
+    let mejorCompania = null;
+    let menorDistancia = Infinity;
+
+    for (const compania of companias) {
+        const cLat = Number(compania.latitud);
+        const cLng = Number(compania.longitud);
+        if (Number.isNaN(cLat) || Number.isNaN(cLng)) continue;
+
+        const distancia = calcularDistanciaHaversineKm(lat, lng, cLat, cLng);
+        if (distancia < menorDistancia) {
+            menorDistancia = distancia;
+            mejorCompania = compania;
+        }
+    }
+
+    return mejorCompania;
+}
+
 export default function HomeScreen({ navigation }) {
     const { user } = useUser();
     const [centralCercana, setCentralCercana] = useState(null);
 
     useEffect(() => {
         let mounted = true;
+        let watchSub = null;
 
         const obtenerCentralCercana = async () => {
             try {
-                const { status } = await Location.requestForegroundPermissionsAsync();
-                if (status !== 'granted') return;
+                // 1. Consultar compañías y solicitar permiso de ubicación en paralelo
+                const [companiasRes, permRes] = await Promise.all([
+                    supabase
+                        .from('companias_bomberos')
+                        .select('id, nombre, latitud, longitud')
+                        .eq('activa', true),
+                    Location.requestForegroundPermissionsAsync(),
+                ]);
 
-                let location = null;
-                try {
-                    location = await Location.getCurrentPositionAsync({
-                        accuracy: Location.Accuracy.Balanced,
-                    });
-                } catch {
-                    location = await Location.getLastKnownPositionAsync();
+                if (!mounted) return;
+
+                if (permRes.status !== 'granted') {
+                    setCentralCercana('Central 116');
+                    return;
                 }
 
-                const lat = location?.coords?.latitude;
-                const lng = location?.coords?.longitude;
-                if (typeof lat !== 'number' || typeof lng !== 'number') return;
+                const companias = !companiasRes.error && Array.isArray(companiasRes.data)
+                    ? companiasRes.data
+                    : [];
 
-                const { data: companias, error } = await supabase
-                    .from('companias_bomberos')
-                    .select('id, nombre, latitud, longitud')
-                    .eq('activa', true);
+                if (companias.length === 0) {
+                    setCentralCercana('Central 116');
+                    return;
+                }
 
-                if (error || !Array.isArray(companias) || companias.length === 0) return;
-
-                let mejorCompania = null;
-                let menorDistancia = Infinity;
-
-                for (const compania of companias) {
-                    const cLat = Number(compania.latitud);
-                    const cLng = Number(compania.longitud);
-                    if (Number.isNaN(cLat) || Number.isNaN(cLng)) continue;
-
-                    const distancia = calcularDistanciaHaversineKm(lat, lng, cLat, cLng);
-                    if (distancia < menorDistancia) {
-                        menorDistancia = distancia;
-                        mejorCompania = compania;
+                const actualizarConCoords = (lat, lng) => {
+                    if (!mounted || typeof lat !== 'number' || typeof lng !== 'number') return false;
+                    const mejor = encontrarCompaniaMasCercana(lat, lng, companias);
+                    if (mejor?.nombre) {
+                        setCentralCercana(mejor.nombre);
+                        return true;
                     }
+                    return false;
+                };
+
+                // 2. Lectura instantánea (< 20ms) de la última posición en caché del dispositivo
+                let resuelto = false;
+                try {
+                    const lastKnown = await Location.getLastKnownPositionAsync({
+                        maxAge: 600000,
+                    });
+                    if (lastKnown?.coords) {
+                        resuelto = actualizarConCoords(
+                            lastKnown.coords.latitude,
+                            lastKnown.coords.longitude
+                        );
+                    }
+                } catch {
+                    // Continuar con lectura activa
                 }
 
-                if (mounted && mejorCompania?.nombre) {
-                    setCentralCercana(mejorCompania.nombre);
+                // 3. Refinar con lectura actual acotada a 4s (evita que quede cargando indefinidamente)
+                try {
+                    const currentPromise = Location.getCurrentPositionAsync({
+                        accuracy: Location.Accuracy.Low,
+                    });
+                    const timeoutPromise = new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error('GPS_TIMEOUT')), 4000)
+                    );
+                    const location = await Promise.race([currentPromise, timeoutPromise]);
+                    if (location?.coords) {
+                        resuelto = actualizarConCoords(
+                            location.coords.latitude,
+                            location.coords.longitude
+                        );
+                    }
+                } catch {
+                    // Si excedió 4s, escuchar el siguiente evento GPS automáticamente sin bloquear
+                }
+
+                // 4. Suscripción ligera para actualizar automáticamente si el usuario se mueve o el GPS tardó en fijar
+                try {
+                    watchSub = await Location.watchPositionAsync(
+                        {
+                            accuracy: Location.Accuracy.Balanced,
+                            timeInterval: 10000,
+                            distanceInterval: 50,
+                        },
+                        (loc) => {
+                            if (loc?.coords) {
+                                actualizarConCoords(loc.coords.latitude, loc.coords.longitude);
+                            }
+                        }
+                    );
+                } catch {
+                    if (!resuelto && mounted) {
+                        setCentralCercana('Central 116');
+                    }
                 }
             } catch (err) {
                 console.warn('[HomeScreen] No se pudo calcular la central cercana:', err?.message || err);
+                if (mounted) {
+                    setCentralCercana((prev) => prev || 'Central 116');
+                }
             }
         };
 
@@ -81,6 +152,9 @@ export default function HomeScreen({ navigation }) {
 
         return () => {
             mounted = false;
+            if (watchSub) {
+                watchSub.remove();
+            }
         };
     }, []);
 
