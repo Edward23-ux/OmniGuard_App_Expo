@@ -317,17 +317,31 @@ export default function ReportEmergencyScreen({ navigation }) {
                     <View style={styles.grid}>
                         {EMERGENCY_TYPES.map((type) => {
                             const isSelected = selected === type.id;
+                            const isDimmed = submitting && !isSelected;
                             return (
                                 <TouchableOpacity
                                     key={type.id}
-                                    style={[styles.typeButton, isSelected && styles.typeButtonSelected]}
+                                    style={[
+                                        styles.typeButton,
+                                        isSelected && styles.typeButtonSelected,
+                                        isDimmed && styles.typeButtonDisabled,
+                                    ]}
                                     activeOpacity={0.8}
-                                    onPress={() => setSelected(type.id)}
+                                    disabled={submitting}
+                                    onPress={() => {
+                                        if (!submitting) setSelected(type.id);
+                                    }}
                                 >
                                     <View style={styles.iconContainer}>
                                         {iconoTipo[type.label]}
                                     </View>
-                                    <Text style={[styles.typeLabel, isSelected && styles.typeLabelSelected]}>
+                                    <Text
+                                        style={[
+                                            styles.typeLabel,
+                                            isSelected && styles.typeLabelSelected,
+                                            isDimmed && styles.typeLabelDisabled,
+                                        ]}
+                                    >
                                         {type.label}
                                     </Text>
                                 </TouchableOpacity>
@@ -342,8 +356,9 @@ export default function ReportEmergencyScreen({ navigation }) {
                             <View style={styles.previewWrap}>
                                 <Image source={{ uri: photoUri }} style={styles.previewImage} resizeMode="cover" />
                                 <TouchableOpacity
-                                    style={styles.discardPhotoBtn}
+                                    style={[styles.discardPhotoBtn, submitting && { opacity: 0.5 }]}
                                     activeOpacity={0.8}
+                                    disabled={submitting}
                                     onPress={() => setPhotoUri(null)}
                                 >
                                     <Ionicons name="trash-outline" size={16} color={colors.surface} />
@@ -353,8 +368,9 @@ export default function ReportEmergencyScreen({ navigation }) {
                         ) : (
                             <View style={styles.photoActionsRow}>
                                 <TouchableOpacity
-                                    style={styles.photoActionBtn}
+                                    style={[styles.photoActionBtn, submitting && { opacity: 0.5 }]}
                                     activeOpacity={0.8}
+                                    disabled={submitting}
                                     onPress={handleTakePhoto}
                                 >
                                     <Ionicons name="camera-outline" size={18} color={colors.text} />
@@ -362,8 +378,9 @@ export default function ReportEmergencyScreen({ navigation }) {
                                 </TouchableOpacity>
 
                                 <TouchableOpacity
-                                    style={styles.photoActionBtn}
+                                    style={[styles.photoActionBtn, submitting && { opacity: 0.5 }]}
                                     activeOpacity={0.8}
+                                    disabled={submitting}
                                     onPress={handlePickFromGallery}
                                 >
                                     <Ionicons name="images-outline" size={18} color={colors.text} />
@@ -423,20 +440,16 @@ export default function ReportEmergencyScreen({ navigation }) {
                         )}
 
                         <Text style={styles.modalMessage}>
-                            Se registró tu emergencia correctamente con tu ubicación en tiempo real. Un operador de la central revisará tu reporte de inmediato.
+                            Se registró tu emergencia correctamente. Un operador de la central revisará tu reporte de inmediato.
                         </Text>
 
-                        <View style={styles.dispatchPill}>
-                            <View style={styles.dispatchDot} />
-                            <Text style={styles.dispatchText}>Central 116 notificada</Text>
-                        </View>
 
                         <TouchableOpacity
                             style={[globalStyles.primaryButton, styles.modalButton]}
                             activeOpacity={0.85}
                             onPress={handleAcceptSuccess}
                         >
-                            <Text style={typography.buttonText}>Ver en Mis Reportes</Text>
+                            <Text style={typography.buttonText}>Mis Reportes</Text>
                             <Ionicons name="arrow-forward" size={18} color={colors.surface} style={{ marginLeft: 6 }} />
                         </TouchableOpacity>
                     </View>
@@ -473,9 +486,11 @@ const styles = StyleSheet.create({
         marginBottom: CARD_GAP,
     },
     typeButtonSelected: { borderColor: colors.primary, backgroundColor: 'rgba(239,59,78,0.08)' },
+    typeButtonDisabled: { opacity: 0.35 },
     iconContainer: { marginBottom: spacing.sm },
     typeLabel: { color: colors.text, fontSize: 13, fontWeight: '600', textAlign: 'center' },
     typeLabelSelected: { color: colors.primaryDark },
+    typeLabelDisabled: { color: colors.textMuted },
     evidenceCard: {
         backgroundColor: colors.surface,
         borderRadius: radius.md,
