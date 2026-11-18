@@ -13,7 +13,12 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "OmniGuard necesita acceso a la cámara para capturar evidencias fotográficas de emergencias.",
+        "NSPhotoLibraryUsageDescription": "OmniGuard necesita acceso a tu galería para adjuntar evidencias fotográficas de emergencias.",
+        "NSLocationWhenInUseUsageDescription": "OmniGuard necesita acceso a tu ubicación para geolocalizar reportes y emergencias en tiempo real."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -21,15 +26,46 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.dev_edward.omniguard_app"
+      "package": "com.dev_edward.omniguard_app",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.VIBRATE",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "OmniGuard necesita acceso a tu ubicación para geolocalizar reportes y emergencias en tiempo real."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "OmniGuard necesita acceso a tu galería para adjuntar evidencias fotográficas de emergencias.",
+          "cameraPermission": "OmniGuard necesita acceso a la cámara para capturar evidencias fotográficas de emergencias."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#EF3B4E"
+        }
+      ]
+    ],
     "extra": {
       "eas": {
-        "projectId": "74c33b96-edb1-4d45-9d9b-e077b700264a"
+        "projectId": "892ffc43-4046-460e-b98d-a5e6c3a18cc9"
       }
-    }
+    },
+    "owner": "rodrigosihues"
   }
 }

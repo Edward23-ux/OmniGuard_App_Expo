@@ -1,46 +1,168 @@
-import React, { useState, useCallback } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native';
+import React, { useState, useCallback, useEffect } from 'react';
+import {
+    View,
+    Text,
+    FlatList,
+    TouchableOpacity,
+    StyleSheet,
+    ActivityIndicator,
+    RefreshControl,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { globalStyles, colors, spacing, typography } from '../styles/globalStyles';
-import { getStoredReports } from '../services/reportStorage';
+import { globalStyles, colors, spacing, typography, radius } from '../styles/globalStyles';
+import { getStoredReports, cacheUserReports } from '../services/reportStorage';
+import { supabase } from '../services/supabaseClient';
+import { dispararNotificacionLocal } from '../services/notificationService';
+import { useUser } from '../context/UserContext';
 
 const STATUS_STYLES = {
     Pendiente: { bg: '#FEF0C7', color: '#B54708' },
+    Asignado: { bg: '#E0E7FF', color: '#3730A3' },
     'En Proceso': { bg: '#D1E9FF', color: '#175CD3' },
     Culminado: { bg: '#D1FADF', color: '#027A48' },
     'Falsa Alarma': { bg: '#FEE4E2', color: '#B42318' },
 };
 
+function normalizarEstado(estado) {
+    if (!estado) return 'Pendiente';
+    const clave = String(estado).trim().toLowerCase().replace(/\s+/g, '_');
+    const mapa = {
+        pendiente: 'Pendiente',
+        asignado: 'Asignado',
+        en_proceso: 'En Proceso',
+        en_camino: 'En Proceso',
+        en_atencion: 'En Proceso',
+        culminado: 'Culminado',
+        resuelto_campo: 'Culminado',
+        cerrado: 'Culminado',
+        falsa_alarma: 'Falsa Alarma',
+    };
+    return mapa[clave] || estado;
+}
+
+function formatearFecha(isoString) {
+    if (!isoString) return 'Reciente';
+    const date = new Date(isoString);
+    if (Number.isNaN(date.getTime())) return String(isoString);
+    const dia = String(date.getDate()).padStart(2, '0');
+    const mes = String(date.getMonth() + 1).padStart(2, '0');
+    const anio = date.getFullYear();
+    const horas = String(date.getHours()).padStart(2, '0');
+    const minutos = String(date.getMinutes()).padStart(2, '0');
+    return `${dia}/${mes}/${anio} · ${horas}:${minutos}`;
+}
+
 function StatusBadge({ estado }) {
-    const style = STATUS_STYLES[estado] ?? STATUS_STYLES.Pendiente;
+    const estadoNormalizado = normalizarEstado(estado);
+    const style = STATUS_STYLES[estadoNormalizado] ?? STATUS_STYLES.Pendiente;
     return (
         <View style={[globalStyles.badge, { backgroundColor: style.bg }]}>
-            <Text style={[globalStyles.badgeText, { color: style.color }]}>{estado}</Text>
+            <Text style={[globalStyles.badgeText, { color: style.color }]}>{estadoNormalizado}</Text>
         </View>
     );
 }
 
 export default function MisReportesScreen({ navigation }) {
+    const { user } = useUser();
     // 1. Estados dinámicos gestionados con useState
     const [reports, setReports] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
 
-    // 2. Consulta asíncrona a AsyncStorage
-    const cargarReportes = useCallback(async (isRefresh = false) => {
-        if (!isRefresh) setLoading(true);
-        try {
-            const data = await getStoredReports();
-            setReports(data);
-        } catch (error) {
-            console.error('Error al cargar reportes:', error);
-        } finally {
-            setLoading(false);
-            setRefreshing(false);
-        }
-    }, []);
+    // 2. Consulta a Supabase filtrada por usuario_id con respaldo de caché por usuario
+    const cargarReportes = useCallback(
+        async (isRefresh = false) => {
+            if (!user?.id) {
+                setReports([]);
+                setLoading(false);
+                setRefreshing(false);
+                return;
+            }
+
+            if (!isRefresh) setLoading(true);
+            try {
+                const { data: remoteRows, error: remoteError } = await supabase
+                    .from('emergencias')
+                    .select('*')
+                    .eq('usuario_id', user.id)
+                    .order('creado_en', { ascending: false });
+
+                if (remoteError) {
+                    throw remoteError;
+                }
+
+                let companiasMap = {};
+                const companiaIds = Array.from(
+                    new Set(
+                        (remoteRows || [])
+                            .map((r) => r.compania_asignada_id || r.compania_id)
+                            .filter(Boolean)
+                    )
+                );
+
+                if (companiaIds.length > 0) {
+                    try {
+                        const { data: companiasData } = await supabase
+                            .from('companias_bomberos')
+                            .select('id, nombre')
+                            .in('id', companiaIds);
+                        if (Array.isArray(companiasData)) {
+                            companiasMap = companiasData.reduce((acc, c) => {
+                                acc[c.id] = c.nombre;
+                                return acc;
+                            }, {});
+                        }
+                    } catch {
+                        // Mantener mapa vacío si falla la consulta de compañías
+                    }
+                }
+
+                const mapped = (remoteRows || []).map((row) => {
+                    const compId = row.compania_asignada_id || row.compania_id;
+                    const coordsTexto =
+                        row.latitud != null && row.longitud != null
+                            ? `Lat: ${Number(row.latitud).toFixed(5)}, Lng: ${Number(row.longitud).toFixed(5)}`
+                            : null;
+
+                    return {
+                        id: String(row.id),
+                        usuario_id: row.usuario_id,
+                        tipo: row.tipo || 'Emergencia',
+                        fecha: formatearFecha(row.creado_en),
+                        estado: normalizarEstado(row.estado),
+                        companiaAsignada: (compId && companiasMap[compId]) || row.compania_nombre || null,
+                        descripcion: row.descripcion || row.referencia || null,
+                        direccion: row.direccion || coordsTexto,
+                        fotoUrl: row.foto_url || null,
+                        informeBombero: row.informe_bombero || null,
+                        fotoCierreUrl: row.foto_cierre_url || null,
+                    };
+                });
+
+                await cacheUserReports(user.id, mapped);
+                setReports(mapped);
+            } catch (error) {
+                console.warn('[MisReportesScreen] Error al consultar Supabase, usando caché local:', error.message);
+                try {
+                    const cached = await getStoredReports(user.id);
+                    setReports(
+                        (cached || []).map((item) => ({
+                            ...item,
+                            estado: normalizarEstado(item.estado),
+                        }))
+                    );
+                } catch (cacheError) {
+                    console.error('Error al cargar reportes:', cacheError);
+                }
+            } finally {
+                setLoading(false);
+                setRefreshing(false);
+            }
+        },
+        [user?.id]
+    );
 
     // 3. Sincronización con useFocusEffect: se ejecuta cada vez que la pestaña gana foco
     useFocusEffect(
@@ -48,6 +170,56 @@ export default function MisReportesScreen({ navigation }) {
             cargarReportes();
         }, [cargarReportes])
     );
+
+    // 4. Suscripción Realtime filtrada estrictamente por usuario_id
+    useEffect(() => {
+        if (!user?.id) return;
+
+        const channel = supabase
+            .channel(`emergencias-ciudadano-${user.id}-${Date.now()}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'emergencias',
+                    filter: `usuario_id=eq.${user.id}`,
+                },
+                (payload) => {
+                    if (payload?.new?.usuario_id !== user.id) return;
+
+                    const updatedId = String(payload?.new?.id || '');
+                    const rawEstado = payload?.new?.estado;
+                    if (rawEstado) {
+                        const estadoNormalizado = normalizarEstado(rawEstado);
+                        setReports((prev) =>
+                            prev.map((item) =>
+                                String(item.id) === updatedId
+                                    ? {
+                                          ...item,
+                                          estado: estadoNormalizado,
+                                          informeBombero: payload?.new?.informe_bombero ?? item.informeBombero,
+                                          fotoCierreUrl: payload?.new?.foto_cierre_url ?? item.fotoCierreUrl,
+                                      }
+                                    : item
+                            )
+                        );
+                        dispararNotificacionLocal(
+                            'Actualización de Reporte',
+                            'Tu reporte pasó a estado: ' + estadoNormalizado,
+                            { role: 'ciudadano', emergencyId: updatedId }
+                        ).catch((err) => {
+                            console.warn('[MisReportesScreen] Error al disparar notificación:', err);
+                        });
+                    }
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [user?.id]);
 
     // 4. Evento de usuario: Pull-to-refresh
     const handleRefresh = () => {
@@ -102,13 +274,17 @@ export default function MisReportesScreen({ navigation }) {
                             </Text>
                         }
                         renderItem={({ item }) => (
-                            <View style={[globalStyles.card, styles.reportCard]}>
-                                <View style={{ flex: 1 }}>
+                            <TouchableOpacity
+                                style={[globalStyles.card, styles.reportCard]}
+                                activeOpacity={0.78}
+                                onPress={() => navigation.navigate('CitizenReportDetail', { reporte: item })}
+                            >
+                                <View style={{ flex: 1, marginRight: spacing.sm }}>
                                     <Text style={styles.reportTitle}>{item.tipo}</Text>
                                     <Text style={typography.caption}>{item.fecha}</Text>
                                 </View>
                                 <StatusBadge estado={item.estado} />
-                            </View>
+                            </TouchableOpacity>
                         )}
                     />
                 )}

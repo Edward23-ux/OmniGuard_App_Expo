@@ -1,17 +1,33 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useState, useRef } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { globalStyles, colors, spacing, typography, radius } from '../styles/globalStyles';
 import { useUser } from '../context/UserContext';
 
+function formatFullName(name) {
+    if (!name || !name.trim()) return 'Usuario';
+    return name
+        .trim()
+        .split(/\s+/)
+        .map((word) => word.charAt(0).toLocaleUpperCase('es-PE') + word.slice(1).toLocaleLowerCase('es-PE'))
+        .join(' ');
+}
+
 export default function ProfileScreen({ navigation }) {
     const { user, logout } = useUser();
+    const [loggingOut, setLoggingOut] = useState(false);
+    const lastUserRef = useRef(user);
+    if (user) {
+        lastUserRef.current = user;
+    }
+    const displayUser = user ?? lastUserRef.current;
+
     let initials = '?';
-    if (user?.datosReniec?.first_name && user?.datosReniec?.first_last_name) {
-        initials = `${user.datosReniec.first_name[0]}${user.datosReniec.first_last_name[0]}`.toUpperCase();
-    } else if (user?.nombre) {
-        const parts = user.nombre.trim().split(/\s+/);
+    if (displayUser?.datosReniec?.first_name && displayUser?.datosReniec?.first_last_name) {
+        initials = `${displayUser.datosReniec.first_name[0]}${displayUser.datosReniec.first_last_name[0]}`.toUpperCase();
+    } else if (displayUser?.nombre) {
+        const parts = displayUser.nombre.trim().split(/\s+/);
         if (parts.length >= 2) {
             initials = `${parts[0][0]}${parts[1][0]}`.toUpperCase();
         } else if (parts.length === 1) {
@@ -19,9 +35,15 @@ export default function ProfileScreen({ navigation }) {
         }
     }
 
-    const handleLogout = () => {
-        logout();
-        navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+    const handleLogout = async () => {
+        if (loggingOut) return;
+        setLoggingOut(true);
+        try {
+            await logout();
+            navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+        } catch {
+            setLoggingOut(false);
+        }
     };
 
     const handleBack = () => {
@@ -47,8 +69,8 @@ export default function ProfileScreen({ navigation }) {
                     <View style={styles.bigAvatar}>
                         <Text style={styles.bigAvatarText}>{initials}</Text>
                     </View>
-                    <Text style={[typography.h2, { marginTop: spacing.md }]}>
-                        {user?.nombre ?? 'Usuario'}
+                    <Text style={[typography.h2, styles.userName]}>
+                        {formatFullName(displayUser?.nombre)}
                     </Text>
                     <Text style={typography.caption}>Ciudadano verificado</Text>
                 </View>
@@ -58,7 +80,7 @@ export default function ProfileScreen({ navigation }) {
                         <Ionicons name="card-outline" size={20} color={colors.textMuted} />
                         <View style={{ marginLeft: spacing.sm }}>
                             <Text style={typography.caption}>DNI</Text>
-                            <Text style={styles.infoValue}>{user?.dni ?? '--------'}</Text>
+                            <Text style={styles.infoValue}>{displayUser?.dni ?? '--------'}</Text>
                         </View>
                     </View>
 
@@ -71,9 +93,20 @@ export default function ProfileScreen({ navigation }) {
                     </View>
                 </View>
 
-                <TouchableOpacity style={styles.logoutButton} activeOpacity={0.8} onPress={handleLogout}>
-                    <Ionicons name="log-out-outline" size={20} color={colors.danger} />
-                    <Text style={styles.logoutText}>Cerrar sesión</Text>
+                <TouchableOpacity
+                    style={[styles.logoutButton, loggingOut && styles.logoutButtonDisabled]}
+                    activeOpacity={0.8}
+                    disabled={loggingOut}
+                    onPress={handleLogout}
+                >
+                    {loggingOut ? (
+                        <ActivityIndicator size="small" color={colors.danger} />
+                    ) : (
+                        <Ionicons name="log-out-outline" size={20} color={colors.danger} />
+                    )}
+                    <Text style={styles.logoutText}>
+                        {loggingOut ? 'Cerrando sesión...' : 'Cerrar sesión'}
+                    </Text>
                 </TouchableOpacity>
             </View>
         </SafeAreaView>
@@ -105,6 +138,10 @@ const styles = StyleSheet.create({
         fontSize: 30,
         fontWeight: '700',
     },
+    userName: {
+        marginTop: spacing.md,
+        textAlign: 'center',
+    },
     infoCard: {
         marginTop: spacing.sm,
     },
@@ -127,6 +164,9 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: colors.danger,
         gap: spacing.xs,
+    },
+    logoutButtonDisabled: {
+        opacity: 0.65,
     },
     logoutText: {
         color: colors.danger,

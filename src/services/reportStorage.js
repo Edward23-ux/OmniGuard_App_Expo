@@ -1,40 +1,58 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const STORAGE_KEY = '@omniguard_reports';
-
-export const INITIAL_REPORTS = [
-    { id: '1', tipo: 'Incendio', fecha: '05/09/2026 · 18:42', estado: 'En Proceso' },
-    { id: '2', tipo: 'Accidente Vehicular', fecha: '02/09/2026 · 09:10', estado: 'Culminado' },
-    { id: '3', tipo: 'Fuga de Gas', fecha: '28/08/2026 · 21:05', estado: 'Falsa Alarma' },
-    { id: '4', tipo: 'Inundación', fecha: '20/08/2026 · 07:33', estado: 'Culminado' },
-];
+export function getReportsStorageKey(userId) {
+    return `@omniguard_reports_${userId}`;
+}
 
 /**
- * Obtiene la lista de reportes guardados en el almacenamiento local.
- * Si es la primera vez que se inicia la app, inicializa con los reportes base.
+ * Obtiene la lista de reportes guardados en el almacenamiento local para un usuario específico.
+ * @param {string|null} userId - UUID del usuario autenticado en la tabla usuarios.
  */
-export async function getStoredReports() {
+export async function getStoredReports(userId = null) {
+    if (!userId) {
+        return [];
+    }
     try {
-        const jsonValue = await AsyncStorage.getItem(STORAGE_KEY);
+        const jsonValue = await AsyncStorage.getItem(getReportsStorageKey(userId));
         if (jsonValue != null) {
-            return JSON.parse(jsonValue);
+            const parsed = JSON.parse(jsonValue);
+            return Array.isArray(parsed) ? parsed : [];
         }
-        // Inicializar almacenamiento con la lista base
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_REPORTS));
-        return INITIAL_REPORTS;
+        return [];
     } catch (error) {
         console.error('Error al leer reportes de AsyncStorage:', error);
-        return INITIAL_REPORTS;
+        return [];
     }
 }
 
 /**
- * Agrega un nuevo reporte de emergencia al inicio del historial en AsyncStorage.
- * @param {string} tipoEmergencia - Nombre del tipo de emergencia (ej. "Incendio")
+ * Actualiza el caché local de reportes para un usuario específico.
+ * @param {string} userId - UUID del usuario autenticado.
+ * @param {Array} reports - Lista de reportes del usuario.
  */
-export async function saveNewReport(tipoEmergencia) {
+export async function cacheUserReports(userId, reports) {
+    if (!userId) return;
     try {
-        const actuales = await getStoredReports();
+        await AsyncStorage.setItem(getReportsStorageKey(userId), JSON.stringify(reports || []));
+    } catch (error) {
+        console.error('Error al cachear reportes en AsyncStorage:', error);
+    }
+}
+
+/**
+ * Agrega un nuevo reporte de emergencia al inicio del historial en AsyncStorage para el usuario.
+ * @param {string} tipoEmergencia - Nombre del tipo de emergencia (ej. "Incendio")
+ * @param {object|null} user - Datos del usuario reportante (debe incluir id de tabla usuarios)
+ * @param {object} extraData - Datos adicionales opcionales (id remoto, coordenadas, fotoUrl)
+ */
+export async function saveNewReport(tipoEmergencia, user = null, extraData = {}) {
+    try {
+        const userId = user?.id || extraData.usuarioId || null;
+        if (!userId) {
+            throw new Error('Se requiere usuario_id para almacenar el reporte.');
+        }
+
+        const actuales = await getStoredReports(userId);
 
         const ahora = new Date();
         const dia = String(ahora.getDate()).padStart(2, '0');
@@ -45,14 +63,19 @@ export async function saveNewReport(tipoEmergencia) {
         const fechaFormateada = `${dia}/${mes}/${anio} · ${horas}:${minutos}`;
 
         const nuevoReporte = {
-            id: Date.now().toString(),
+            id: extraData.id ? String(extraData.id) : Date.now().toString(),
+            usuario_id: userId,
             tipo: tipoEmergencia,
             fecha: fechaFormateada,
             estado: 'Pendiente',
+            reportanteNombre: user?.nombre || 'Ciudadano Verificado',
+            reportanteDni: user?.dni || '',
+            coordenadas: extraData.coordenadas || null,
+            fotoUrl: extraData.fotoUrl || null,
         };
 
         const nuevaLista = [nuevoReporte, ...actuales];
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nuevaLista));
+        await AsyncStorage.setItem(getReportsStorageKey(userId), JSON.stringify(nuevaLista));
         return nuevoReporte;
     } catch (error) {
         console.error('Error al guardar reporte en AsyncStorage:', error);

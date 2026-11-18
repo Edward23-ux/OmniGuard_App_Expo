@@ -1,12 +1,162 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Linking, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
 import { globalStyles, colors, spacing, radius } from '../styles/globalStyles';
 import { useUser } from '../context/UserContext';
+import { supabase } from '../services/supabaseClient';
+
+function calcularDistanciaHaversineKm(lat1, lon1, lat2, lon2) {
+    const toRad = (deg) => (deg * Math.PI) / 180;
+    const radioTierraKm = 6371;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRad(lat1)) *
+        Math.cos(toRad(lat2)) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return radioTierraKm * c;
+}
+
+function encontrarCompaniaMasCercana(lat, lng, companias) {
+    let mejorCompania = null;
+    let menorDistancia = Infinity;
+
+    for (const compania of companias) {
+        const cLat = Number(compania.latitud);
+        const cLng = Number(compania.longitud);
+        if (Number.isNaN(cLat) || Number.isNaN(cLng)) continue;
+
+        const distancia = calcularDistanciaHaversineKm(lat, lng, cLat, cLng);
+        if (distancia < menorDistancia) {
+            menorDistancia = distancia;
+            mejorCompania = compania;
+        }
+    }
+
+    return mejorCompania;
+}
 
 export default function HomeScreen({ navigation }) {
     const { user } = useUser();
+    const [centralCercana, setCentralCercana] = useState(null);
+
+    useEffect(() => {
+        let mounted = true;
+        let watchSub = null;
+
+        const obtenerCentralCercana = async () => {
+            try {
+                // 1. Consultar compañías y solicitar permiso de ubicación en paralelo
+                const [companiasRes, permRes] = await Promise.all([
+                    supabase
+                        .from('companias_bomberos')
+                        .select('id, nombre, latitud, longitud')
+                        .eq('activa', true),
+                    Location.requestForegroundPermissionsAsync(),
+                ]);
+
+                if (!mounted) return;
+
+                if (permRes.status !== 'granted') {
+                    setCentralCercana('Central 116');
+                    return;
+                }
+
+                const companias = !companiasRes.error && Array.isArray(companiasRes.data)
+                    ? companiasRes.data
+                    : [];
+
+                if (companias.length === 0) {
+                    setCentralCercana('Central 116');
+                    return;
+                }
+
+                const actualizarConCoords = (lat, lng) => {
+                    if (!mounted || typeof lat !== 'number' || typeof lng !== 'number') return false;
+                    const mejor = encontrarCompaniaMasCercana(lat, lng, companias);
+                    if (mejor?.nombre) {
+                        setCentralCercana(mejor.nombre);
+                        return true;
+                    }
+                    return false;
+                };
+
+                // 2. Lectura instantánea (< 20ms) de la última posición en caché del dispositivo
+                let resuelto = false;
+                try {
+                    const lastKnown = await Location.getLastKnownPositionAsync({
+                        maxAge: 600000,
+                    });
+                    if (lastKnown?.coords) {
+                        resuelto = actualizarConCoords(
+                            lastKnown.coords.latitude,
+                            lastKnown.coords.longitude
+                        );
+                    }
+                } catch {
+                    // Continuar con lectura activa
+                }
+
+                // 3. Refinar con lectura actual acotada a 4s (evita que quede cargando indefinidamente)
+                try {
+                    const currentPromise = Location.getCurrentPositionAsync({
+                        accuracy: Location.Accuracy.Low,
+                    });
+                    const timeoutPromise = new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error('GPS_TIMEOUT')), 4000)
+                    );
+                    const location = await Promise.race([currentPromise, timeoutPromise]);
+                    if (location?.coords) {
+                        resuelto = actualizarConCoords(
+                            location.coords.latitude,
+                            location.coords.longitude
+                        );
+                    }
+                } catch {
+                    // Si excedió 4s, escuchar el siguiente evento GPS automáticamente sin bloquear
+                }
+
+                // 4. Suscripción ligera para actualizar automáticamente si el usuario se mueve o el GPS tardó en fijar
+                try {
+                    watchSub = await Location.watchPositionAsync(
+                        {
+                            accuracy: Location.Accuracy.Balanced,
+                            timeInterval: 10000,
+                            distanceInterval: 50,
+                        },
+                        (loc) => {
+                            if (loc?.coords) {
+                                actualizarConCoords(loc.coords.latitude, loc.coords.longitude);
+                            }
+                        }
+                    );
+                } catch {
+                    if (!resuelto && mounted) {
+                        setCentralCercana('Central 116');
+                    }
+                }
+            } catch (err) {
+                console.warn('[HomeScreen] No se pudo calcular la central cercana:', err?.message || err);
+                if (mounted) {
+                    setCentralCercana((prev) => prev || 'Central 116');
+                }
+            }
+        };
+
+        obtenerCentralCercana();
+
+        return () => {
+            mounted = false;
+            if (watchSub) {
+                watchSub.remove();
+            }
+        };
+    }, []);
 
     // Obtener primer nombre del usuario formateado
     const rawNombre =
@@ -41,7 +191,9 @@ export default function HomeScreen({ navigation }) {
                 <View style={styles.header}>
                     <View style={styles.statusPill}>
                         <View style={styles.statusDot} />
-                        <Text style={styles.statusText}>OmniGuard Activo · Central 116</Text>
+                        <Text style={styles.statusText}>
+                            OmniGuard Activo · {centralCercana || 'Buscando central cercana...'}
+                        </Text>
                     </View>
 
                     <Text style={styles.title}>{pregunta}</Text>
@@ -131,8 +283,9 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(18, 183, 106, 0.12)',
         paddingHorizontal: spacing.md,
         paddingVertical: 6,
-        borderRadius: radius.round,
+        borderRadius: radius.md,
         marginBottom: spacing.md,
+        maxWidth: '100%',
     },
     statusDot: {
         width: 8,
@@ -145,6 +298,8 @@ const styles = StyleSheet.create({
         fontSize: 12,
         fontWeight: '700',
         color: colors.success,
+        flexShrink: 1,
+        lineHeight: 16,
     },
     title: {
         fontSize: 27,

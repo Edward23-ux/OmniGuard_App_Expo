@@ -1,13 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
     View,
     Text,
     TextInput,
     TouchableOpacity,
     KeyboardAvoidingView,
+    ScrollView,
     Platform,
     StyleSheet,
     ActivityIndicator,
+    Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -19,13 +21,29 @@ export default function LoginScreen({ navigation }) {
     const [dni, setDni] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+    const scrollViewRef = useRef(null);
 
     const isValidDni = dni.length === 8;
+
+    const scrollToInput = () => {
+        setTimeout(() => {
+            scrollViewRef.current?.scrollToEnd({ animated: true });
+        }, 80);
+    };
+
+    useEffect(() => {
+        const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+        const sub = Keyboard.addListener(showEvent, scrollToInput);
+        return () => sub.remove();
+    }, []);
 
     const handleDniChange = (text) => {
         const onlyDigits = text.replace(/[^0-9]/g, '').slice(0, 8);
         setDni(onlyDigits);
         if (error) setError('');
+        if (onlyDigits.length === 8) {
+            Keyboard.dismiss();
+        }
     };
 
     const handleSubmit = async () => {
@@ -38,7 +56,7 @@ export default function LoginScreen({ navigation }) {
 
         try {
             const userData = await consultarDniReniec(dni);
-            login(userData);
+            await login(userData);
             navigation.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
         } catch (err) {
             setError(err.message || 'Error al consultar el DNI.');
@@ -51,9 +69,28 @@ export default function LoginScreen({ navigation }) {
         <SafeAreaView style={globalStyles.screen}>
             <KeyboardAvoidingView
                 style={{ flex: 1 }}
-                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                behavior="padding"
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 12}
             >
-                <View style={styles.content}>
+                {/* Botón superior derecho "Soy bombero" */}
+                <View style={styles.topHeader}>
+                    <TouchableOpacity
+                        style={styles.bomberoButton}
+                        activeOpacity={0.82}
+                        onPress={() => navigation.navigate('BomberoLogin')}
+                    >
+                        <MaterialCommunityIcons name="fire-truck" size={18} color={colors.primary} />
+                        <Text style={styles.bomberoButtonText}>Soy bombero</Text>
+                    </TouchableOpacity>
+                </View>
+
+                <ScrollView
+                    ref={scrollViewRef}
+                    contentContainerStyle={styles.scrollContent}
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator={false}
+                    bounces={false}
+                >
                     <View style={styles.logoWrap}>
                         <View style={styles.logoCircle}>
                             <MaterialCommunityIcons name="shield-alert" size={40} color={colors.surface} />
@@ -78,6 +115,7 @@ export default function LoginScreen({ navigation }) {
                             maxLength={8}
                             value={dni}
                             onChangeText={handleDniChange}
+                            onFocus={scrollToInput}
                             textAlign="center"
                             editable={!loading}
                         />
@@ -100,17 +138,45 @@ export default function LoginScreen({ navigation }) {
                             )}
                         </TouchableOpacity>
                     </View>
-                </View>
+                </ScrollView>
             </KeyboardAvoidingView>
         </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
-    content: {
-        flex: 1,
+    topHeader: {
+        flexDirection: 'row',
+        justifyContent: 'flex-end',
+        paddingHorizontal: spacing.lg,
+        paddingTop: spacing.md,
+    },
+    bomberoButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: colors.surface,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 9,
+        borderRadius: radius.round,
+        borderWidth: 1.5,
+        borderColor: 'rgba(239, 59, 78, 0.35)',
+        shadowColor: colors.primary,
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+        shadowOffset: { width: 0, height: 3 },
+        elevation: 2,
+    },
+    bomberoButtonText: {
+        fontSize: 13.5,
+        fontWeight: '700',
+        color: colors.primary,
+    },
+    scrollContent: {
+        flexGrow: 1,
         justifyContent: 'center',
         paddingHorizontal: spacing.lg,
+        paddingVertical: spacing.lg,
     },
     logoWrap: {
         alignItems: 'center',
