@@ -48,7 +48,7 @@ function separarNombresYApellidos(data, fallbackNombre = '') {
     };
 }
 
-async function sincronizarUsuarioSupabase(dni, nombres, apellidos) {
+async function sincronizarUsuarioSupabase(dni, nombres, apellidos, verificado = true) {
     const { data: usuarioExistente, error: selectError } = await supabase
         .from('usuarios')
         .select('*')
@@ -60,13 +60,17 @@ async function sincronizarUsuarioSupabase(dni, nombres, apellidos) {
     }
 
     if (usuarioExistente?.id) {
+        const updatePayload = {
+            nombres,
+            apellidos,
+        };
+        if (verificado) {
+            updatePayload.verificado = true;
+        }
+
         const { data: usuarioActualizado, error: updateError } = await supabase
             .from('usuarios')
-            .update({
-                nombres,
-                apellidos,
-                verificado: true,
-            })
+            .update(updatePayload)
             .eq('id', usuarioExistente.id)
             .select('*')
             .single();
@@ -86,7 +90,7 @@ async function sincronizarUsuarioSupabase(dni, nombres, apellidos) {
             apellidos,
             fecha_nacimiento: null,
             foto_dni_url: null,
-            verificado: true,
+            verificado,
         })
         .select('*')
         .single();
@@ -101,7 +105,8 @@ async function sincronizarUsuarioSupabase(dni, nombres, apellidos) {
 export function UserProvider({ children }) {
     const [user, setUser] = useState(null);
 
-    const consultarDniReniec = useCallback(async (dni) => {
+    const consultarDniReniec = useCallback(async (dni, options = {}) => {
+        const { verificado = true } = options;
         const dniLimpio = String(dni || '').trim();
         if (!/^\d{8}$/.test(dniLimpio)) {
             throw new Error('El DNI debe tener 8 dígitos.');
@@ -157,7 +162,8 @@ export function UserProvider({ children }) {
         const usuarioDb = await sincronizarUsuarioSupabase(
             datosReniec?.document_number || dniLimpio,
             nombres,
-            apellidos
+            apellidos,
+            verificado
         );
 
         const nombreCompleto = `${usuarioDb.nombres || nombres} ${usuarioDb.apellidos || apellidos}`.trim();

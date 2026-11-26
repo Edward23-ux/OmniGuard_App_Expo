@@ -72,6 +72,9 @@ export async function saveNewReport(tipoEmergencia, user = null, extraData = {})
             reportanteDni: user?.dni || '',
             coordenadas: extraData.coordenadas || null,
             fotoUrl: extraData.fotoUrl || null,
+            descripcion: extraData.descripcion || null,
+            nivelConfianzaIa: extraData.nivelConfianzaIa ?? null,
+            etiquetaIa: extraData.etiquetaIa || null,
         };
 
         const nuevaLista = [nuevoReporte, ...actuales];

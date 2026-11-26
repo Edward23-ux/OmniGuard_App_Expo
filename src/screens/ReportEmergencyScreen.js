@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Svg, { Path, Circle, Line } from 'react-native-svg';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import { globalStyles, colors, spacing, typography, radius } from '../styles/globalStyles';
 import { saveNewReport } from '../services/reportStorage';
 import { supabase, subirEvidenciaFotografica } from '../services/supabaseClient';
@@ -27,6 +28,8 @@ const DEFAULT_COORDS = {
     latitud: -12.11568,
     longitud: -77.02970,
 };
+
+const MAX_BASE64_LENGTH = 5500000;
 
 export const iconoTipo = {
     'Incendio': (
@@ -101,6 +104,12 @@ export default function ReportEmergencyScreen({ navigation }) {
     const [selected, setSelected] = useState(null);
     const [coords, setCoords] = useState(DEFAULT_COORDS);
     const [photoUri, setPhotoUri] = useState(null);
+    const [photoBase64, setPhotoBase64] = useState(null);
+    const [analyzingEvidence, setAnalyzingEvidence] = useState(false);
+    const [aiAnalysis, setAiAnalysis] = useState(null);
+    const [evidenceModalVisible, setEvidenceModalVisible] = useState(false);
+    const [rejectionModalVisible, setRejectionModalVisible] = useState(false);
+    const [rejectionReason, setRejectionReason] = useState('');
     const [submitting, setSubmitting] = useState(false);
     const [successModalVisible, setSuccessModalVisible] = useState(false);
     const [reportedType, setReportedType] = useState(null);
@@ -151,7 +160,122 @@ export default function ReportEmergencyScreen({ navigation }) {
         obtenerUbicacionGps();
     }, [obtenerUbicacionGps]);
 
+    const handleDiscardPhoto = () => {
+        setPhotoUri(null);
+        setPhotoBase64(null);
+        setAiAnalysis(null);
+    };
+
+    const analizarEvidenciaConIA = async (asset) => {
+        if (!asset?.uri) return;
+
+        setPhotoUri(asset.uri);
+        setAiAnalysis(null);
+        setAnalyzingEvidence(true);
+
+        try {
+            let base64Image = asset.base64 || '';
+            if (!base64Image) {
+                base64Image = await FileSystem.readAsStringAsync(asset.uri, {
+                    encoding: FileSystem.EncodingType.Base64,
+                });
+            }
+
+            base64Image = String(base64Image || '').replace(/^data:[^;]+;base64,/, '').trim();
+
+            if (!base64Image) {
+                Alert.alert('Error', 'No se pudo procesar la imagen seleccionada.');
+                handleDiscardPhoto();
+                return;
+            }
+
+            if (base64Image.length > MAX_BASE64_LENGTH) {
+                Alert.alert(
+                    'Imagen muy pesada',
+                    'La imagen es demasiado pesada. Toma una foto con menor resolución o aléjate un poco.'
+                );
+                handleDiscardPhoto();
+                return;
+            }
+
+            setPhotoBase64(base64Image);
+
+            const { data, error } = await supabase.functions.invoke('analizar-evidencia-ia', {
+                body: { imagenBase64: base64Image },
+            });
+
+            if (error) {
+                let errMsg = 'No se pudo analizar la evidencia con IA. Intenta de nuevo.';
+                try {
+                    if (error.context && typeof error.context.json === 'function') {
+                        const errBody = await error.context.json();
+                        errMsg = errBody?.motivo || errBody?.error || errMsg;
+                    } else if (error.message) {
+                        errMsg = error.message;
+                    }
+                } catch {
+                    // Mantener mensaje por defecto
+                }
+                setRejectionReason(errMsg);
+                setEvidenceModalVisible(false);
+                setRejectionModalVisible(true);
+                return;
+            }
+
+            if (!data || data.exito === false) {
+                setRejectionReason(
+                    data?.motivo ||
+                    'La IA no pudo validar esta imagen como evidencia clara de una emergencia.'
+                );
+                setEvidenceModalVisible(false);
+                setRejectionModalVisible(true);
+                return;
+            }
+
+            const nivelConfianza =
+                typeof data.nivel_confianza_ia === 'number'
+                    ? data.nivel_confianza_ia
+                    : Number(data.nivel_confianza_ia ?? 85);
+            const descripcion = String(data.descripcion || '').trim();
+            const etiquetaIa =
+                data.etiqueta_ia ||
+                (nivelConfianza >= 80
+                    ? 'aprobado'
+                    : nivelConfianza < 30
+                        ? 'rechazado'
+                        : 'revision_manual');
+
+            if (etiquetaIa === 'rechazado') {
+                setRejectionReason(
+                    descripcion
+                        ? `La IA determinó que esta imagen no parece mostrar una emergencia real.\n\nLo que se visualizó: "${descripcion}"`
+                        : 'La IA determinó que esta imagen no parece mostrar una emergencia real o no es legible como evidencia clara.'
+                );
+                setEvidenceModalVisible(false);
+                setRejectionModalVisible(true);
+                return;
+            }
+
+            setAiAnalysis({
+                descripcion: descripcion || 'Evidencia analizada correctamente.',
+                nivelConfianza,
+                etiquetaIa,
+                tipoDetectado: data.tipo_emergencia_detectado || null,
+            });
+        } catch (err) {
+            console.error('[ReportEmergencyScreen] Error al analizar evidencia con IA:', err);
+            Alert.alert(
+                'Error de conexión',
+                'No se pudo conectar con el servicio de análisis IA. Puedes reintentar o reportar sin foto.'
+            );
+            handleDiscardPhoto();
+        } finally {
+            setAnalyzingEvidence(false);
+        }
+    };
+
     const handleTakePhoto = async () => {
+        if (analyzingEvidence || submitting) return;
         try {
             const { status } = await ImagePicker.requestCameraPermissionsAsync();
             if (status !== 'granted') {
@@ -169,11 +293,12 @@ export default function ReportEmergencyScreen({ navigation }) {
             const result = await ImagePicker.launchCameraAsync({
                 mediaTypes: ['images'],
                 allowsEditing: false,
-                quality: 0.7,
+                quality: 0.65,
+                base64: true,
             });
 
             if (!result.canceled && result.assets?.length > 0) {
-                setPhotoUri(result.assets[0].uri);
+                await analizarEvidenciaConIA(result.assets[0]);
             }
         } catch (error) {
             console.error('[ReportEmergencyScreen] Error al abrir cámara:', error);
@@ -182,6 +307,7 @@ export default function ReportEmergencyScreen({ navigation }) {
     };
 
     const handlePickFromGallery = async () => {
+        if (analyzingEvidence || submitting) return;
         try {
             const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
             if (status !== 'granted') {
@@ -199,11 +325,12 @@ export default function ReportEmergencyScreen({ navigation }) {
             const result = await ImagePicker.launchImageLibraryAsync({
                 mediaTypes: ['images'],
                 allowsEditing: false,
-                quality: 0.7,
+                quality: 0.65,
+                base64: true,
             });
 
             if (!result.canceled && result.assets?.length > 0) {
-                setPhotoUri(result.assets[0].uri);
+                await analizarEvidenciaConIA(result.assets[0]);
             }
         } catch (error) {
             console.error('[ReportEmergencyScreen] Error al abrir galería:', error);
@@ -211,21 +338,33 @@ export default function ReportEmergencyScreen({ navigation }) {
         }
     };
 
-    const enviarEmergenciaSupabase = async (tipoLabel, fotoUrl) => {
+    const enviarEmergenciaSupabase = async (tipoLabel, fotoUrl, aiData = null) => {
         if (!user?.id) {
             throw new Error('Sesión ciudadana no válida. Inicia sesión nuevamente.');
         }
 
+        const insertPayload = {
+            usuario_id: user.id,
+            tipo: tipoLabel,
+            latitud: coords.latitud,
+            longitud: coords.longitud,
+            estado: 'Pendiente',
+            foto_url: fotoUrl,
+        };
+
+        if (aiData?.descripcion) {
+            insertPayload.descripcion = aiData.descripcion;
+        }
+        if (typeof aiData?.nivelConfianza === 'number') {
+            insertPayload.nivel_confianza_ia = aiData.nivelConfianza;
+        }
+        if (aiData?.etiquetaIa) {
+            insertPayload.etiqueta_ia = aiData.etiquetaIa;
+        }
+
         const { data: nuevaEmergencia, error: emergencyError } = await supabase
             .from('emergencias')
-            .insert({
-                usuario_id: user.id,
-                tipo: tipoLabel,
-                latitud: coords.latitud,
-                longitud: coords.longitud,
-                estado: 'Pendiente',
-                foto_url: fotoUrl,
-            })
+            .insert(insertPayload)
             .select()
             .single();
 
@@ -236,26 +375,43 @@ export default function ReportEmergencyScreen({ navigation }) {
         return nuevaEmergencia?.id ? String(nuevaEmergencia.id) : null;
     };
 
-    const handleReport = async () => {
+    const handleOpenEvidenceModal = () => {
         const tipo = EMERGENCY_TYPES.find((t) => t.id === selected);
-        if (!tipo || submitting) return;
+        if (!tipo || submitting || analyzingEvidence) return;
 
         if (!user?.id) {
             Alert.alert('Sesión requerida', 'Debes iniciar sesión con tu DNI para reportar una emergencia.');
             return;
         }
 
+        setEvidenceModalVisible(true);
+    };
+
+    const handleReport = async ({ forceNoPhoto = false } = {}) => {
+        const tipo = EMERGENCY_TYPES.find((t) => t.id === selected);
+        if (!tipo || submitting || analyzingEvidence) return;
+
+        if (!user?.id) {
+            Alert.alert('Sesión requerida', 'Debes iniciar sesión con tu DNI para reportar una emergencia.');
+            return;
+        }
+
+        const effectivePhotoUri = forceNoPhoto ? null : photoUri;
+        const effectivePhotoBase64 = forceNoPhoto ? null : photoBase64;
+        const effectiveAiAnalysis = forceNoPhoto ? null : aiAnalysis;
+
         setSubmitting(true);
         let fotoUrl = null;
         let remoteId = null;
 
         try {
-            if (photoUri) {
+            if (effectivePhotoUri) {
                 try {
                     fotoUrl = await subirEvidenciaFotografica(
-                        photoUri,
+                        effectivePhotoUri,
                         'iniciales',
-                        user.dni || user.id
+                        user.dni || user.id,
+                        effectivePhotoBase64
                     );
                 } catch (uploadError) {
                     console.error('[ReportEmergencyScreen] Error al subir foto a Supabase:', uploadError);
@@ -263,7 +419,7 @@ export default function ReportEmergencyScreen({ navigation }) {
             }
 
             try {
-                remoteId = await enviarEmergenciaSupabase(tipo.label, fotoUrl);
+                remoteId = await enviarEmergenciaSupabase(tipo.label, fotoUrl, effectiveAiAnalysis);
             } catch (supabaseError) {
                 console.error('[ReportEmergencyScreen] Error al sincronizar emergencia con Supabase (modo offline activo):', supabaseError);
             }
@@ -272,7 +428,10 @@ export default function ReportEmergencyScreen({ navigation }) {
                 id: remoteId,
                 usuarioId: user.id,
                 coordenadas: { lat: coords.latitud, lng: coords.longitud },
-                fotoUrl: fotoUrl || photoUri || null,
+                fotoUrl: fotoUrl || effectivePhotoUri || null,
+                descripcion: effectiveAiAnalysis?.descripcion || null,
+                nivelConfianzaIa: effectiveAiAnalysis?.nivelConfianza ?? null,
+                etiquetaIa: effectiveAiAnalysis?.etiquetaIa || null,
             });
 
             try {
@@ -284,6 +443,7 @@ export default function ReportEmergencyScreen({ navigation }) {
                 console.warn('[ReportEmergencyScreen] No se pudo mostrar notificación local:', notifError);
             }
 
+            setEvidenceModalVisible(false);
             setReportedType(tipo);
             setSuccessModalVisible(true);
         } catch (error) {
@@ -328,7 +488,7 @@ export default function ReportEmergencyScreen({ navigation }) {
                                     ]}
                                     activeOpacity={0.8}
                                     disabled={submitting}
-                                    onPress={() => {
+                                    onPress={() => {git 
                                         if (!submitting) setSelected(type.id);
                                     }}
                                 >
@@ -348,58 +508,17 @@ export default function ReportEmergencyScreen({ navigation }) {
                             );
                         })}
                     </View>
-
-                    {/* Bloque opcional de Evidencia Fotográfica */}
-                    <View style={styles.evidenceCard}>
-                        <Text style={styles.evidenceSectionTitle}>Evidencia Fotográfica (opcional)</Text>
-                        {photoUri ? (
-                            <View style={styles.previewWrap}>
-                                <Image source={{ uri: photoUri }} style={styles.previewImage} resizeMode="cover" />
-                                <TouchableOpacity
-                                    style={[styles.discardPhotoBtn, submitting && { opacity: 0.5 }]}
-                                    activeOpacity={0.8}
-                                    disabled={submitting}
-                                    onPress={() => setPhotoUri(null)}
-                                >
-                                    <Ionicons name="trash-outline" size={16} color={colors.surface} />
-                                    <Text style={styles.discardPhotoText}>Descartar foto</Text>
-                                </TouchableOpacity>
-                            </View>
-                        ) : (
-                            <View style={styles.photoActionsRow}>
-                                <TouchableOpacity
-                                    style={[styles.photoActionBtn, submitting && { opacity: 0.5 }]}
-                                    activeOpacity={0.8}
-                                    disabled={submitting}
-                                    onPress={handleTakePhoto}
-                                >
-                                    <Ionicons name="camera-outline" size={18} color={colors.text} />
-                                    <Text style={styles.photoActionText}>Tomar Foto</Text>
-                                </TouchableOpacity>
-
-                                <TouchableOpacity
-                                    style={[styles.photoActionBtn, submitting && { opacity: 0.5 }]}
-                                    activeOpacity={0.8}
-                                    disabled={submitting}
-                                    onPress={handlePickFromGallery}
-                                >
-                                    <Ionicons name="images-outline" size={18} color={colors.text} />
-                                    <Text style={styles.photoActionText}>Galería</Text>
-                                </TouchableOpacity>
-                            </View>
-                        )}
-                    </View>
                 </ScrollView>
 
                 <TouchableOpacity
                     style={[
                         globalStyles.primaryButton,
                         styles.submitButton,
-                        (!selected || submitting) && globalStyles.primaryButtonDisabled,
+                        (!selected || submitting || analyzingEvidence) && globalStyles.primaryButtonDisabled,
                     ]}
                     activeOpacity={0.85}
-                    disabled={!selected || submitting}
-                    onPress={handleReport}
+                    disabled={!selected || submitting || analyzingEvidence}
+                    onPress={handleOpenEvidenceModal}
                 >
                     {submitting ? (
                         <ActivityIndicator size="small" color={colors.surface} style={{ marginRight: 8 }} />
@@ -411,6 +530,214 @@ export default function ReportEmergencyScreen({ navigation }) {
                     </Text>
                 </TouchableOpacity>
             </View>
+
+            {/* Modal de Evidencia Fotográfica (opcional) */}
+            <Modal
+                visible={evidenceModalVisible}
+                transparent
+                animationType="fade"
+                onRequestClose={() => {
+                    if (!submitting && !analyzingEvidence) {
+                        setEvidenceModalVisible(false);
+                    }
+                }}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={[styles.modalCard, styles.evidenceModalCard]}>
+                        <View style={styles.evidenceModalHeader}>
+                            <Text style={styles.evidenceModalTitle}>Evidencia Fotográfica (opcional)</Text>
+                            <TouchableOpacity
+                                style={styles.evidenceModalCloseBtn}
+                                disabled={submitting || analyzingEvidence}
+                                onPress={() => setEvidenceModalVisible(false)}
+                                hitSlop={10}
+                            >
+                                <Ionicons name="close" size={22} color={colors.textMuted} />
+                            </TouchableOpacity>
+                        </View>
+
+                        {(() => {
+                            const tipoSeleccionado = EMERGENCY_TYPES.find((t) => t.id === selected);
+                            return tipoSeleccionado ? (
+                                <View style={styles.emergencyTag}>
+                                    <View style={{ marginRight: 6 }}>
+                                        {iconoTipo[tipoSeleccionado.label]}
+                                    </View>
+                                    <Text style={styles.emergencyTagText}>{tipoSeleccionado.label}</Text>
+                                </View>
+                            ) : null;
+                        })()}
+
+                        <Text style={styles.evidenceModalSubtitle}>
+                            Adjunta una foto de la emergencia para que la IA la analice o envía el reporte directamente.
+                        </Text>
+
+                        <View style={styles.evidenceModalBody}>
+                            {photoUri ? (
+                                <View style={styles.previewWrap}>
+                                    <View style={styles.previewImageBox}>
+                                        <Image source={{ uri: photoUri }} style={styles.previewImage} resizeMode="cover" />
+                                        {analyzingEvidence && (
+                                            <View style={styles.analyzingOverlay}>
+                                                <ActivityIndicator size="small" color={colors.surface} />
+                                                <Text style={styles.analyzingText}>Analizando evidencia con IA...</Text>
+                                            </View>
+                                        )}
+                                    </View>
+
+                                    {aiAnalysis && !analyzingEvidence && (
+                                        <View style={styles.aiResultBox}>
+                                            <View style={styles.aiResultHeader}>
+                                                <View style={styles.aiResultTitleRow}>
+                                                    <Ionicons name="sparkles" size={15} color={colors.info} />
+                                                    <Text style={styles.aiResultTitle}>Análisis IA</Text>
+                                                </View>
+                                                <View
+                                                    style={[
+                                                        styles.aiConfidenceBadge,
+                                                        aiAnalysis.etiquetaIa === 'aprobado'
+                                                            ? styles.aiConfidenceApproved
+                                                            : styles.aiConfidenceReview,
+                                                    ]}
+                                                >
+                                                    <Text
+                                                        style={[
+                                                            styles.aiConfidenceText,
+                                                            aiAnalysis.etiquetaIa === 'aprobado'
+                                                                ? { color: colors.success }
+                                                                : { color: colors.warning },
+                                                        ]}
+                                                    >
+                                                        Confianza: {Math.round(aiAnalysis.nivelConfianza)}%
+                                                    </Text>
+                                                </View>
+                                            </View>
+                                            <Text style={styles.aiDescriptionText}>{aiAnalysis.descripcion}</Text>
+                                        </View>
+                                    )}
+
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.discardPhotoBtn,
+                                            (submitting || analyzingEvidence) && { opacity: 0.5 },
+                                        ]}
+                                        activeOpacity={0.8}
+                                        disabled={submitting || analyzingEvidence}
+                                        onPress={handleDiscardPhoto}
+                                    >
+                                        <Ionicons name="trash-outline" size={16} color={colors.surface} />
+                                        <Text style={styles.discardPhotoText}>Descartar foto</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            ) : (
+                                <View style={styles.photoActionsRow}>
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.photoActionBtn,
+                                            (submitting || analyzingEvidence) && { opacity: 0.5 },
+                                        ]}
+                                        activeOpacity={0.8}
+                                        disabled={submitting || analyzingEvidence}
+                                        onPress={handleTakePhoto}
+                                    >
+                                        <Ionicons name="camera-outline" size={18} color={colors.text} />
+                                        <Text style={styles.photoActionText}>Tomar Foto</Text>
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.photoActionBtn,
+                                            (submitting || analyzingEvidence) && { opacity: 0.5 },
+                                        ]}
+                                        activeOpacity={0.8}
+                                        disabled={submitting || analyzingEvidence}
+                                        onPress={handlePickFromGallery}
+                                    >
+                                        <Ionicons name="images-outline" size={18} color={colors.text} />
+                                        <Text style={styles.photoActionText}>Galería</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            )}
+                        </View>
+
+                        <TouchableOpacity
+                            style={[
+                                globalStyles.primaryButton,
+                                styles.modalButton,
+                                (submitting || analyzingEvidence) && globalStyles.primaryButtonDisabled,
+                            ]}
+                            activeOpacity={0.85}
+                            disabled={submitting || analyzingEvidence}
+                            onPress={() => handleReport()}
+                        >
+                            {submitting || analyzingEvidence ? (
+                                <ActivityIndicator size="small" color={colors.surface} style={{ marginRight: 8 }} />
+                            ) : (
+                                <Ionicons name="send" size={18} color={colors.surface} style={{ marginRight: 8 }} />
+                            )}
+                            <Text style={typography.buttonText}>
+                                {analyzingEvidence
+                                    ? 'ANALIZANDO FOTO...'
+                                    : submitting
+                                        ? 'ENVIANDO REPORTE...'
+                                        : photoUri
+                                            ? 'CONFIRMAR Y ENVIAR'
+                                            : 'ENVIAR SIN FOTO'}
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Modal de Evidencia No Válida (IA) */}
+            <Modal
+                visible={rejectionModalVisible}
+                transparent
+                animationType="fade"
+                onRequestClose={() => {
+                    setRejectionModalVisible(false);
+                    handleDiscardPhoto();
+                    setEvidenceModalVisible(true);
+                }}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalCard}>
+                        <View style={styles.rejectIconOuter}>
+                            <Ionicons name="warning" size={32} color={colors.danger} />
+                        </View>
+                        <Text style={styles.modalTitle}>Evidencia No Válida</Text>
+                        <Text style={styles.modalMessage}>
+                            {rejectionReason ||
+                                'La IA determinó que esta imagen no parece mostrar una emergencia real o no es legible como evidencia clara. ¿Qué deseas hacer?'}
+                        </Text>
+
+                        <TouchableOpacity
+                            style={[globalStyles.primaryButton, styles.modalButton]}
+                            activeOpacity={0.85}
+                            onPress={() => {
+                                setRejectionModalVisible(false);
+                                handleDiscardPhoto();
+                                setEvidenceModalVisible(true);
+                                handleTakePhoto();
+                            }}
+                        >
+                            <Text style={typography.buttonText}>Reintentar tomar foto</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.secondaryModalBtn}
+                            activeOpacity={0.8}
+                            onPress={() => {
+                                setRejectionModalVisible(false);
+                                handleDiscardPhoto();
+                                handleReport({ forceNoPhoto: true });
+                            }}
+                        >
+                            <Text style={styles.secondaryModalBtnText}>Reportar sin foto</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
 
             {/* Modal de confirmación con diseño OmniGuard */}
             <Modal
@@ -491,19 +818,40 @@ const styles = StyleSheet.create({
     typeLabel: { color: colors.text, fontSize: 13, fontWeight: '600', textAlign: 'center' },
     typeLabelSelected: { color: colors.primaryDark },
     typeLabelDisabled: { color: colors.textMuted },
-    evidenceCard: {
-        backgroundColor: colors.surface,
-        borderRadius: radius.md,
-        borderWidth: 1,
-        borderColor: colors.border,
-        padding: spacing.md,
-        marginBottom: spacing.sm,
+    evidenceModalCard: {
+        paddingTop: spacing.lg,
     },
-    evidenceSectionTitle: {
-        fontSize: 13,
-        fontWeight: '700',
+    evidenceModalHeader: {
+        width: '100%',
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: spacing.xs,
+    },
+    evidenceModalTitle: {
+        fontSize: 16,
+        fontWeight: '800',
         color: colors.text,
-        marginBottom: spacing.sm,
+        flex: 1,
+    },
+    evidenceModalCloseBtn: {
+        width: 32,
+        height: 32,
+        borderRadius: radius.round,
+        backgroundColor: colors.background,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    evidenceModalSubtitle: {
+        fontSize: 13,
+        color: colors.textMuted,
+        textAlign: 'center',
+        lineHeight: 19,
+        marginBottom: spacing.md,
+    },
+    evidenceModalBody: {
+        width: '100%',
+        marginBottom: spacing.lg,
     },
     photoActionsRow: {
         flexDirection: 'row',
@@ -527,14 +875,108 @@ const styles = StyleSheet.create({
         color: colors.text,
     },
     previewWrap: {
+        width: '100%',
         alignItems: 'center',
         gap: spacing.sm,
     },
-    previewImage: {
+    previewImageBox: {
         width: '100%',
         height: 160,
         borderRadius: radius.sm,
+        overflow: 'hidden',
         backgroundColor: colors.background,
+        position: 'relative',
+    },
+    previewImage: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        width: '100%',
+        height: '100%',
+    },
+    analyzingOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 10,
+        backgroundColor: 'rgba(16, 24, 40, 0.72)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+    },
+    analyzingText: {
+        color: colors.surface,
+        fontSize: 13,
+        fontWeight: '600',
+    },
+    aiResultBox: {
+        width: '100%',
+        backgroundColor: colors.background,
+        borderRadius: radius.sm,
+        borderWidth: 1,
+        borderColor: colors.border,
+        padding: spacing.sm + 4,
+        gap: 6,
+    },
+    aiResultHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    aiResultTitleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 5,
+    },
+    aiResultTitle: {
+        fontSize: 12.5,
+        fontWeight: '700',
+        color: colors.text,
+    },
+    aiConfidenceBadge: {
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        borderRadius: radius.round,
+    },
+    aiConfidenceApproved: {
+        backgroundColor: 'rgba(18, 183, 106, 0.14)',
+    },
+    aiConfidenceReview: {
+        backgroundColor: 'rgba(247, 144, 9, 0.14)',
+    },
+    aiConfidenceText: {
+        fontSize: 11.5,
+        fontWeight: '700',
+    },
+    aiDescriptionText: {
+        fontSize: 13,
+        color: colors.text,
+        lineHeight: 19,
+    },
+    rejectIconOuter: {
+        width: 68,
+        height: 68,
+        borderRadius: 34,
+        backgroundColor: 'rgba(239, 59, 78, 0.12)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: spacing.md,
+    },
+    secondaryModalBtn: {
+        width: '100%',
+        paddingVertical: 12,
+        marginTop: spacing.xs,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    secondaryModalBtnText: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: colors.textMuted,
     },
     discardPhotoBtn: {
         flexDirection: 'row',

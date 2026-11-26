@@ -29,5 +29,8 @@
     "react-native-web": "^0.21.4",
     "react-native-webview": "14.0.1"
   },
-  "private": true
+  "private": true,
+  "devDependencies": {
+    "typescript": "~6.0.3"
+  }
 }
