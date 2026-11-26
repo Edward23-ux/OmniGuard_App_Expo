@@ -4,6 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import * as Notifications from 'expo-notifications';
 
 import LoginScreen from '../screens/LoginScreen';
+import ScanDniScreen from '../screens/ScanDniScreen';
 import MainTabNavigator from './MainTabNavigator';
 import ReportEmergencyScreen from '../screens/ReportEmergencyScreen';
 import CitizenReportDetailScreen from '../screens/CitizenReportDetailScreen';
@@ -36,6 +37,13 @@ export default function AppNavigator() {
             screenOptions={{ headerShown: false }}
         >
             <Stack.Screen name="Login" component={LoginScreen} />
+            <Stack.Screen
+                name="ScanDni"
+                component={ScanDniScreen}
+                options={{
+                    animation: 'slide_from_right',
+                }}
+            />
             <Stack.Screen name="MainTabs" component={MainTabNavigator} />
             <Stack.Screen
                 name="ReportEmergency"
