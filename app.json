@@ -25,7 +25,6 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true,
       "package": "com.dev_edward.omniguard_app",
       "permissions": [
         "android.permission.CAMERA",
@@ -34,7 +33,8 @@
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.VIBRATE",
         "android.permission.RECORD_AUDIO"
-      ]
+      ],
+      "enableMinifyInReleaseBuilds": false
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -59,7 +59,9 @@
           "icon": "./assets/icon.png",
           "color": "#EF3B4E"
         }
-      ]
+      ],
+      "expo-build-properties",
+      "expo-font"
     ],
     "extra": {
       "eas": {
