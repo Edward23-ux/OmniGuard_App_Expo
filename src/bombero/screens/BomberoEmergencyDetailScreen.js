@@ -50,8 +50,16 @@ export default function BomberoEmergencyDetailScreen({ route, navigation }) {
     const [isTouchingMap, setIsTouchingMap] = useState(false);
 
     const statusBadge = STATUS_BADGE_MAP[emergency.estado] || STATUS_BADGE_MAP.Pendiente;
-    const shortId = String(emergency.id || '6cd64a46').slice(0, 8);
-    const isIaApproved = emergency.iaValidacion?.estado !== 'Rechazado';
+    const shortId = String(emergency.id || '').slice(0, 8) || '--------';
+    const iaDisponible = Boolean(emergency.iaValidacion?.disponible);
+    const iaCodigo = emergency.iaValidacion?.codigo || 'sin_evidencia';
+    const iaBadgeStyle = !iaDisponible
+        ? { bg: '#F2F4F7', color: '#475467', label: (emergency.iaValidacion?.estado || 'SIN EVIDENCIA').toUpperCase() }
+        : iaCodigo === 'aprobado'
+          ? { bg: '#D1FADF', color: '#027A48', label: `APROBADO (${emergency.iaValidacion.porcentaje}%)` }
+          : iaCodigo === 'rechazado'
+            ? { bg: '#FEE4E2', color: '#B42318', label: `RECHAZADO POR IA (${emergency.iaValidacion.porcentaje}%)` }
+            : { bg: '#FEF0C7', color: '#B54708', label: `REVISIÓN MANUAL (${emergency.iaValidacion.porcentaje}%)` };
     const isClosedState = emergency.estado === 'Culminado' || emergency.estado === 'Falsa Alarma';
     const sinUnidadAsignada = !emergency.unidadAsignadaId || emergency.estado === 'Pendiente';
     const unidadOperativaAutorizada =
@@ -490,30 +498,25 @@ export default function BomberoEmergencyDetailScreen({ route, navigation }) {
                     <View style={styles.detailsRow}>
                         <View style={{ flex: 1, paddingRight: spacing.sm }}>
                             <Text style={styles.reporterName}>
-                                {emergency.reportante?.nombre || 'EDWARD ANGEL CAMPOS HEREDIA'}
+                                {emergency.reportante?.nombre || 'Ciudadano Verificado'}
                             </Text>
                             <Text style={styles.reporterDni}>
-                                DNI: {emergency.reportante?.dni || '73338614'}
+                                DNI: {emergency.reportante?.dni || 'No registrado'}
                             </Text>
 
                             <View
                                 style={[
                                     styles.iaApprovalBadge,
-                                    {
-                                        backgroundColor: isIaApproved ? '#D1FADF' : '#FEE4E2',
-                                    },
+                                    { backgroundColor: iaBadgeStyle.bg },
                                 ]}
                             >
                                 <Text
                                     style={[
                                         styles.iaApprovalText,
-                                        {
-                                            color: isIaApproved ? '#027A48' : '#B42318',
-                                        },
+                                        { color: iaBadgeStyle.color },
                                     ]}
                                 >
-                                    {(emergency.iaValidacion?.estado || 'APROBADO').toUpperCase()} (
-                                    {emergency.iaValidacion?.porcentaje ?? 95}%)
+                                    {iaDisponible ? `IA: ${iaBadgeStyle.label}` : iaBadgeStyle.label}
                                 </Text>
                             </View>
                         </View>
@@ -645,16 +648,18 @@ export default function BomberoEmergencyDetailScreen({ route, navigation }) {
                                 </View>
                             )}
                             <Text style={styles.evidenceVisualTitle}>
-                                Captura Verificada · {emergency.tipo}
+                                {emergency.fotoUrl
+                                    ? `Evidencia Adjunta · ${emergency.tipo}`
+                                    : `Sin evidencia fotográfica · ${emergency.tipo}`}
                             </Text>
                             <Text style={styles.evidenceTimestamp}>
-                                {emergency.evidencia?.fechaCaptura || emergency.fecha || '9/9/2026'}
+                                {emergency.evidencia?.fechaCaptura || emergency.fecha || 'Reciente'}
                             </Text>
                             <View
                                 style={[
                                     styles.iaApprovalBadge,
                                     {
-                                        backgroundColor: isIaApproved ? '#D1FADF' : '#FEE4E2',
+                                        backgroundColor: iaBadgeStyle.bg,
                                         marginTop: spacing.sm,
                                     },
                                 ]}
@@ -662,20 +667,19 @@ export default function BomberoEmergencyDetailScreen({ route, navigation }) {
                                 <Text
                                     style={[
                                         styles.iaApprovalText,
-                                        { color: isIaApproved ? '#027A48' : '#B42318' },
+                                        { color: iaBadgeStyle.color },
                                     ]}
                                 >
-                                    IA: {(emergency.iaValidacion?.estado || 'APROBADO').toUpperCase()} (
-                                    {emergency.iaValidacion?.porcentaje ?? 95}%)
+                                    {iaDisponible ? `IA: ${iaBadgeStyle.label}` : iaBadgeStyle.label}
                                 </Text>
                             </View>
                         </View>
 
                         <View style={styles.evidenceDetailRow}>
-                            <Text style={styles.evidenceDetailLabel}>Análisis de campo / IA:</Text>
+                            <Text style={styles.evidenceDetailLabel}>Descripción / Análisis IA:</Text>
                             <Text style={styles.evidenceDetailBody}>
                                 {emergency.evidencia?.descripcion ||
-                                    'Reporte georreferenciado con evidencia fotográfica analizada por el motor de IA de OmniGuard.'}
+                                    'Sin descripción de evidencia disponible.'}
                             </Text>
                         </View>
 
@@ -683,7 +687,7 @@ export default function BomberoEmergencyDetailScreen({ route, navigation }) {
                             <Text style={styles.evidenceDetailLabel}>Resultado del modelo:</Text>
                             <Text style={styles.evidenceDetailBody}>
                                 {emergency.evidencia?.confianzaDetalle ||
-                                    `Confianza del ${emergency.iaValidacion?.porcentaje ?? 95}% en validación automática.`}
+                                    'Sin análisis automático disponible.'}
                             </Text>
                         </View>
 

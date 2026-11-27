@@ -1,8 +1,11 @@
 import React, { useEffect } from 'react';
+import { View, ActivityIndicator } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import * as Notifications from 'expo-notifications';
 
+import { useUser } from '../context/UserContext';
+import { colors } from '../styles/globalStyles';
 import LoginScreen from '../screens/LoginScreen';
 import ScanDniScreen from '../screens/ScanDniScreen';
 import MainTabNavigator from './MainTabNavigator';
@@ -15,6 +18,7 @@ const Stack = createNativeStackNavigator();
 
 export default function AppNavigator() {
     const navigation = useNavigation();
+    const { user, sessionLoaded } = useUser();
 
     useEffect(() => {
         const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
@@ -31,9 +35,31 @@ export default function AppNavigator() {
         };
     }, [navigation]);
 
+    if (!sessionLoaded) {
+        return (
+            <View
+                style={{
+                    flex: 1,
+                    backgroundColor: colors.background,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                }}
+            >
+                <ActivityIndicator size="large" color={colors.primary} />
+            </View>
+        );
+    }
+
+    const initialRouteName =
+        user?.rol === 'bombero'
+            ? 'BomberoStack'
+            : user
+              ? 'MainTabs'
+              : 'Login';
+
     return (
         <Stack.Navigator
-            initialRouteName="Login"
+            initialRouteName={initialRouteName}
             screenOptions={{ headerShown: false }}
         >
             <Stack.Screen name="Login" component={LoginScreen} />

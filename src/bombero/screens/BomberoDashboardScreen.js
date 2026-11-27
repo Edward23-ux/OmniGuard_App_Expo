@@ -343,7 +343,13 @@ export default function BomberoDashboardScreen({ route, navigation }) {
                         }
                         renderItem={({ item }) => {
                             const statusStyle = STATUS_BADGE_MAP[item.estado] || STATUS_BADGE_MAP.Pendiente;
-                            const isIaApproved = item.iaValidacion?.estado === 'Aprobado';
+                            const iaDisponible = Boolean(item.iaValidacion?.disponible);
+                            const iaColor =
+                                item.iaValidacion?.codigo === 'aprobado'
+                                    ? colors.success
+                                    : item.iaValidacion?.codigo === 'rechazado'
+                                        ? colors.danger
+                                        : colors.warning;
                             return (
                                 <TouchableOpacity
                                     style={[
@@ -412,19 +418,26 @@ export default function BomberoDashboardScreen({ route, navigation }) {
                                         </View>
                                     )}
 
-                                    <View style={styles.cardBottomRow}>
-                                        <Text style={styles.iaLabel}>
-                                            IA:{' '}
-                                            <Text
-                                                style={{
-                                                    color: isIaApproved ? colors.success : colors.danger,
-                                                    fontWeight: '700',
-                                                }}
-                                            >
-                                                {item.iaValidacion?.estado || 'Aprobado'}
-                                            </Text>{' '}
-                                            ({item.iaValidacion?.porcentaje ?? 95}%)
-                                        </Text>
+                                    <View
+                                        style={[
+                                            styles.cardBottomRow,
+                                            !iaDisponible && { justifyContent: 'flex-end' },
+                                        ]}
+                                    >
+                                        {iaDisponible && (
+                                            <Text style={styles.iaLabel}>
+                                                IA:{' '}
+                                                <Text
+                                                    style={{
+                                                        color: iaColor,
+                                                        fontWeight: '700',
+                                                    }}
+                                                >
+                                                    {item.iaValidacion.estado}
+                                                </Text>{' '}
+                                                ({item.iaValidacion.porcentaje}%)
+                                            </Text>
+                                        )}
 
                                         <View style={styles.detailLink}>
                                             <Text style={styles.detailLinkText}>Ver detalles</Text>

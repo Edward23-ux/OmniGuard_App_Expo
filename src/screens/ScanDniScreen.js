@@ -165,19 +165,12 @@ export default function ScanDniScreen({ navigation, route }) {
                 setExito(true);
                 setIsProcessing(false);
                 setErrorState(false);
-                setMensaje('¡Identidad verificada con éxito!');
+                setMensaje('Identidad verificada correctamente');
 
                 await login({
                     ...userData,
                     verificado: true,
                 });
-
-                setTimeout(() => {
-                    navigation.reset({
-                        index: 0,
-                        routes: [{ name: 'MainTabs' }],
-                    });
-                }, 600);
             } else {
                 setErrorState(true);
                 setIsProcessing(false);
@@ -196,11 +189,102 @@ export default function ScanDniScreen({ navigation, route }) {
         }
     };
 
+    const handleFinalizarRegistro = () => {
+        navigation.reset({
+            index: 0,
+            routes: [{ name: 'MainTabs' }],
+        });
+    };
+
+    const nombreCiudadano = (
+        userData?.nombre ||
+        [userData?.nombres, userData?.apellidos].filter(Boolean).join(' ') ||
+        'Ciudadano Verificado'
+    ).trim();
+
     const frameBorderColor = exito
         ? colors.success
         : errorState
           ? colors.danger
           : colors.primary;
+
+    if (exito) {
+        const checksAprobados = [
+            'Documento físico original detectado',
+            'Captura en vivo (sin pantalla ni impresión)',
+            'Legibilidad y nitidez aprobadas',
+            `Número de DNI ${dniEsperado} coincidente con RENIEC`,
+        ];
+
+        return (
+            <SafeAreaView style={styles.screen}>
+                <View style={styles.verifiedContainer}>
+                    <View style={styles.verifiedHeader}>
+                        <View style={styles.verifiedIconWrap}>
+                            <Ionicons name="checkmark-circle" size={44} color={colors.success} />
+                        </View>
+                        <Text style={styles.verifiedTitle}>Identidad verificada</Text>
+                        <Text style={styles.verifiedSubtitle}>
+                            Validamos tu documento con inteligencia artificial y los registros de RENIEC.
+                        </Text>
+                    </View>
+
+                    <View style={styles.verifiedCard}>
+                        <View style={styles.identityRow}>
+                            {capturedUri ? (
+                                <Image
+                                    source={{ uri: capturedUri }}
+                                    style={styles.verifiedThumb}
+                                    resizeMode="cover"
+                                />
+                            ) : (
+                                <View style={styles.verifiedThumbFallback}>
+                                    <MaterialCommunityIcons
+                                        name="card-account-details-outline"
+                                        size={24}
+                                        color={colors.primary}
+                                    />
+                                </View>
+                            )}
+                            <View style={styles.identityMeta}>
+                                <Text style={styles.identityLabel}>TITULAR VERIFICADO</Text>
+                                <Text style={styles.identityName} numberOfLines={2}>
+                                    {nombreCiudadano}
+                                </Text>
+                                <Text style={styles.identityDni}>DNI {dniEsperado}</Text>
+                            </View>
+                        </View>
+
+                        <View style={styles.verifiedDivider} />
+
+                        <View style={styles.checksList}>
+                            {checksAprobados.map((item) => (
+                                <View key={item} style={styles.checkRow}>
+                                    <View style={styles.checkDot}>
+                                        <Ionicons name="checkmark" size={13} color={colors.success} />
+                                    </View>
+                                    <Text style={styles.checkText}>{item}</Text>
+                                </View>
+                            ))}
+                        </View>
+                    </View>
+                </View>
+
+                <View style={styles.bottomPanel}>
+                    <TouchableOpacity
+                        style={styles.scanButton}
+                        activeOpacity={0.85}
+                        onPress={handleFinalizarRegistro}
+                    >
+                        <View style={styles.scanButtonRow}>
+                            <Text style={styles.scanButtonText}>Finalizar y continuar</Text>
+                            <Ionicons name="arrow-forward" size={20} color={colors.surface} />
+                        </View>
+                    </TouchableOpacity>
+                </View>
+            </SafeAreaView>
+        );
+    }
 
     return (
         <SafeAreaView style={styles.screen}>
@@ -686,5 +770,116 @@ const styles = StyleSheet.create({
         color: colors.surface,
         fontSize: 14.5,
         fontWeight: '700',
+    },
+    verifiedContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        paddingHorizontal: spacing.lg,
+    },
+    verifiedHeader: {
+        alignItems: 'center',
+        marginBottom: spacing.lg,
+    },
+    verifiedIconWrap: {
+        width: 72,
+        height: 72,
+        borderRadius: radius.round,
+        backgroundColor: 'rgba(18, 183, 106, 0.12)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: spacing.md,
+    },
+    verifiedTitle: {
+        fontSize: 22,
+        fontWeight: '800',
+        color: colors.text,
+        textAlign: 'center',
+    },
+    verifiedSubtitle: {
+        fontSize: 13.5,
+        color: colors.textMuted,
+        textAlign: 'center',
+        lineHeight: 20,
+        marginTop: 6,
+        paddingHorizontal: spacing.sm,
+    },
+    verifiedCard: {
+        backgroundColor: colors.surface,
+        borderRadius: radius.lg,
+        padding: spacing.lg,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    identityRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.md,
+    },
+    verifiedThumb: {
+        width: 76,
+        height: 48,
+        borderRadius: radius.sm,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.background,
+    },
+    verifiedThumbFallback: {
+        width: 76,
+        height: 48,
+        borderRadius: radius.sm,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.background,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    identityMeta: {
+        flex: 1,
+    },
+    identityLabel: {
+        fontSize: 10.5,
+        fontWeight: '700',
+        color: colors.textMuted,
+        letterSpacing: 0.6,
+    },
+    identityName: {
+        fontSize: 15,
+        fontWeight: '700',
+        color: colors.text,
+        marginTop: 2,
+    },
+    identityDni: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: colors.textMuted,
+        marginTop: 2,
+    },
+    verifiedDivider: {
+        height: 1,
+        backgroundColor: colors.border,
+        marginVertical: spacing.md,
+    },
+    checksList: {
+        gap: 10,
+    },
+    checkRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
+    checkDot: {
+        width: 22,
+        height: 22,
+        borderRadius: 11,
+        backgroundColor: 'rgba(18, 183, 106, 0.12)',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    checkText: {
+        flex: 1,
+        fontSize: 13.5,
+        fontWeight: '500',
+        color: colors.text,
+        lineHeight: 19,
     },
 });

@@ -134,7 +134,7 @@ export default function MisReportesScreen({ navigation }) {
                         estado: normalizarEstado(row.estado),
                         companiaAsignada: (compId && companiasMap[compId]) || row.compania_nombre || null,
                         descripcion: row.descripcion || row.referencia || null,
-                        direccion: row.direccion || coordsTexto,
+                        direccion: row.direccion_aproximada || row.direccion || coordsTexto,
                         fotoUrl: row.foto_url || null,
                         informeBombero: row.informe_bombero || null,
                         fotoCierreUrl: row.foto_cierre_url || null,

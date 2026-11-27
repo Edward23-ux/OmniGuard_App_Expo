@@ -17,7 +17,7 @@ import { globalStyles, colors, spacing, typography, radius } from '../styles/glo
 import { useUser } from '../context/UserContext';
 
 export default function LoginScreen({ navigation }) {
-    const { consultarDniReniec } = useUser();
+    const { consultarDniReniec, login } = useUser();
     const [dni, setDni] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
@@ -56,7 +56,12 @@ export default function LoginScreen({ navigation }) {
 
         try {
             const userData = await consultarDniReniec(dni, { verificado: false });
-            navigation.navigate('ScanDni', { userData });
+            if (userData?.verificado === true) {
+                await login(userData);
+                navigation.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
+            } else {
+                navigation.navigate('ScanDni', { userData });
+            }
         } catch (err) {
             setError(err.message || 'Error al consultar el DNI.');
         } finally {

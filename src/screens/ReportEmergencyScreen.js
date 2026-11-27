@@ -245,17 +245,6 @@ export default function ReportEmergencyScreen({ navigation }) {
                         ? 'rechazado'
                         : 'revision_manual');
 
-            if (etiquetaIa === 'rechazado') {
-                setRejectionReason(
-                    descripcion
-                        ? `La IA determinó que esta imagen no parece mostrar una emergencia real.\n\nLo que se visualizó: "${descripcion}"`
-                        : 'La IA determinó que esta imagen no parece mostrar una emergencia real o no es legible como evidencia clara.'
-                );
-                setEvidenceModalVisible(false);
-                setRejectionModalVisible(true);
-                return;
-            }
-
             setAiAnalysis({
                 descripcion: descripcion || 'Evidencia analizada correctamente.',
                 nivelConfianza,
@@ -488,7 +477,7 @@ export default function ReportEmergencyScreen({ navigation }) {
                                     ]}
                                     activeOpacity={0.8}
                                     disabled={submitting}
-                                    onPress={() => {git 
+                                    onPress={() => {
                                         if (!submitting) setSelected(type.id);
                                     }}
                                 >
@@ -589,15 +578,29 @@ export default function ReportEmergencyScreen({ navigation }) {
                                         <View style={styles.aiResultBox}>
                                             <View style={styles.aiResultHeader}>
                                                 <View style={styles.aiResultTitleRow}>
-                                                    <Ionicons name="sparkles" size={15} color={colors.info} />
-                                                    <Text style={styles.aiResultTitle}>Análisis IA</Text>
+                                                    <Ionicons
+                                                        name={
+                                                            aiAnalysis.etiquetaIa === 'rechazado'
+                                                                ? 'alert-circle-outline'
+                                                                : 'sparkles'
+                                                        }
+                                                        size={15}
+                                                        color={
+                                                            aiAnalysis.etiquetaIa === 'rechazado'
+                                                                ? colors.danger
+                                                                : colors.info
+                                                        }
+                                                    />
+                                                    <Text style={styles.aiResultTitle}>Evaluación IA</Text>
                                                 </View>
                                                 <View
                                                     style={[
                                                         styles.aiConfidenceBadge,
                                                         aiAnalysis.etiquetaIa === 'aprobado'
                                                             ? styles.aiConfidenceApproved
-                                                            : styles.aiConfidenceReview,
+                                                            : aiAnalysis.etiquetaIa === 'rechazado'
+                                                                ? { backgroundColor: '#FEE4E2' }
+                                                                : styles.aiConfidenceReview,
                                                     ]}
                                                 >
                                                     <Text
@@ -605,14 +608,20 @@ export default function ReportEmergencyScreen({ navigation }) {
                                                             styles.aiConfidenceText,
                                                             aiAnalysis.etiquetaIa === 'aprobado'
                                                                 ? { color: colors.success }
-                                                                : { color: colors.warning },
+                                                                : aiAnalysis.etiquetaIa === 'rechazado'
+                                                                    ? { color: colors.danger }
+                                                                    : { color: colors.warning },
                                                         ]}
                                                     >
                                                         Confianza: {Math.round(aiAnalysis.nivelConfianza)}%
                                                     </Text>
                                                 </View>
                                             </View>
-                                            <Text style={styles.aiDescriptionText}>{aiAnalysis.descripcion}</Text>
+                                            {aiAnalysis.etiquetaIa === 'rechazado' && (
+                                                <Text style={styles.aiDescriptionText}>
+                                                    La IA detectó baja confianza en la imagen, pero tu reporte se enviará igualmente para revisión de la Central.
+                                                </Text>
+                                            )}
                                         </View>
                                     )}
 

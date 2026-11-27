@@ -166,7 +166,7 @@ function mapSupabaseEmergencyRow(row) {
         rawLng <= 180;
     const lat = hasValidCoords ? rawLat : -12.0464;
     const lng = hasValidCoords ? rawLng : -77.0428;
-    const cleanDireccion = String(row.direccion || '')
+    const cleanDireccion = String(row.direccion_aproximada || row.direccion || '')
         .replace(/\s*\(Geolocalizado\)\s*/gi, ' ')
         .trim();
     const usuarioObj = Array.isArray(row.usuarios) ? row.usuarios[0] : row.usuarios;
@@ -174,6 +174,31 @@ function mapSupabaseEmergencyRow(row) {
     const nombreReportante = nombres || 'Ciudadano Verificado';
     const dniReportante = usuarioObj?.dni || 'No registrado';
     const estadoNormalizado = normalizarEstado(row.estado);
+
+    const tieneFoto = Boolean(row.foto_url);
+    const rawEtiquetaIa = String(row.etiqueta_ia || '').trim().toLowerCase();
+    const rawConfianzaIa =
+        row.nivel_confianza_ia != null && row.nivel_confianza_ia !== ''
+            ? Number(row.nivel_confianza_ia)
+            : null;
+    const tieneAnalisisIa =
+        tieneFoto &&
+        rawConfianzaIa !== null &&
+        Number.isFinite(rawConfianzaIa) &&
+        Boolean(rawEtiquetaIa) &&
+        rawEtiquetaIa !== 'pendiente_ia';
+
+    const mapaEtiquetaIa = {
+        aprobado: 'Aprobado',
+        revision_manual: 'Revisión manual',
+        rechazado: 'Rechazado por IA',
+    };
+    const estadoIaLegible = tieneAnalisisIa
+        ? mapaEtiquetaIa[rawEtiquetaIa] || row.etiqueta_ia
+        : tieneFoto
+            ? 'Pendiente IA'
+            : 'Sin evidencia';
+    const porcentajeIa = tieneAnalisisIa ? Math.round(rawConfianzaIa) : null;
 
     return {
         id: String(row.id),
@@ -192,8 +217,10 @@ function mapSupabaseEmergencyRow(row) {
         fotoCierreUrl: row.foto_cierre_url || null,
         informeBombero: row.informe_bombero || null,
         iaValidacion: {
-            estado: row.ia_estado || 'Aprobado',
-            porcentaje: row.ia_porcentaje ?? 95,
+            disponible: tieneAnalisisIa,
+            codigo: tieneAnalisisIa ? rawEtiquetaIa : tieneFoto ? 'pendiente_ia' : 'sin_evidencia',
+            estado: estadoIaLegible,
+            porcentaje: porcentajeIa,
         },
         reportante: {
             nombre: nombreReportante,
@@ -210,10 +237,16 @@ function mapSupabaseEmergencyRow(row) {
             },
         ],
         evidencia: {
-            descripcion: row.foto_url
-                ? `Emergencia "${row.tipo}" registrada con fotografía adjunta y coordenadas GPS.`
-                : `Alerta ciudadana de tipo "${row.tipo}" con coordenadas GPS en tiempo real.`,
-            confianzaDetalle: 'Validación de incidente recibida desde central OmniGuard.',
+            descripcion:
+                row.descripcion ||
+                (tieneFoto
+                    ? 'Fotografía adjunta sin descripción generada por IA.'
+                    : 'Este reporte fue enviado sin fotografía adjunta.'),
+            confianzaDetalle: tieneAnalisisIa
+                ? `Confianza estimada por IA: ${porcentajeIa}% (${estadoIaLegible}). La decisión final corresponde a la Central.`
+                : tieneFoto
+                    ? 'Fotografía pendiente de análisis por el modelo de IA.'
+                    : 'No se realizó análisis de IA porque el ciudadano no adjuntó fotografía.',
             fechaCaptura: fecha,
             Prioridad: estadoNormalizado === 'Pendiente' ? 'ALTA - Pendiente de despacho' : `Estado: ${estadoNormalizado}`,
         },

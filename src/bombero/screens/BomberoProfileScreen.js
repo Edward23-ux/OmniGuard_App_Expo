@@ -33,8 +33,8 @@ export default function BomberoProfileScreen({ navigation }) {
             ? `${parts[0][0]}${parts[1][0]}`.toUpperCase()
             : (parts[0]?.[0] || 'B').toUpperCase();
 
-    const handleLogout = () => {
-        logout();
+    const handleLogout = async () => {
+        await logout();
         navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
     };
 

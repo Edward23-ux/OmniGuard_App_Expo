@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useMemo, useCallback } from 'react';
+import React, { createContext, useContext, useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../services/supabaseClient';
 
@@ -6,6 +6,7 @@ const UserContext = createContext(null);
 
 const RENIEC_API_KEY = process.env.EXPO_PUBLIC_RENIEC_API_KEY || '';
 export const CITIZEN_SESSION_KEY = '@omniguard_citizen_session';
+export const BOMBERO_SESSION_KEY = '@omniguard_bombero_session';
 
 function separarNombresYApellidos(data, fallbackNombre = '') {
     const rawNombres = (data?.first_name || data?.nombres || '').trim();
@@ -60,12 +61,19 @@ async function sincronizarUsuarioSupabase(dni, nombres, apellidos, verificado = 
     }
 
     if (usuarioExistente?.id) {
-        const updatePayload = {
-            nombres,
-            apellidos,
-        };
+        const updatePayload = {};
+        if (nombres && nombres !== 'Ciudadano') {
+            updatePayload.nombres = nombres;
+        }
+        if (apellidos && apellidos !== 'Verificado') {
+            updatePayload.apellidos = apellidos;
+        }
         if (verificado) {
             updatePayload.verificado = true;
+        }
+
+        if (Object.keys(updatePayload).length === 0) {
+            return usuarioExistente;
         }
 
         const { data: usuarioActualizado, error: updateError } = await supabase
@@ -104,6 +112,52 @@ async function sincronizarUsuarioSupabase(dni, nombres, apellidos, verificado = 
 
 export function UserProvider({ children }) {
     const [user, setUser] = useState(null);
+    const [sessionLoaded, setSessionLoaded] = useState(false);
+    const userRef = useRef(null);
+
+    useEffect(() => {
+        userRef.current = user;
+    }, [user]);
+
+    // Restaurar sesión persistente (Bombero o Ciudadano) desde AsyncStorage al abrir la app
+    useEffect(() => {
+        let mounted = true;
+
+        const restaurarSesion = async () => {
+            try {
+                const [bomberoJson, citizenJson] = await Promise.all([
+                    AsyncStorage.getItem(BOMBERO_SESSION_KEY),
+                    AsyncStorage.getItem(CITIZEN_SESSION_KEY),
+                ]);
+
+                if (bomberoJson) {
+                    const parsedBombero = JSON.parse(bomberoJson);
+                    if (parsedBombero?.id && parsedBombero?.rol === 'bombero') {
+                        if (mounted) setUser(parsedBombero);
+                        return;
+                    }
+                }
+
+                if (citizenJson) {
+                    const parsedCitizen = JSON.parse(citizenJson);
+                    if (parsedCitizen?.id && parsedCitizen?.dni) {
+                        if (mounted) setUser(parsedCitizen);
+                        return;
+                    }
+                }
+            } catch (error) {
+                console.warn('[UserContext] No se pudo restaurar la sesión desde AsyncStorage:', error?.message || error);
+            } finally {
+                if (mounted) setSessionLoaded(true);
+            }
+        };
+
+        restaurarSesion();
+
+        return () => {
+            mounted = false;
+        };
+    }, []);
 
     const consultarDniReniec = useCallback(async (dni, options = {}) => {
         const { verificado = true } = options;
@@ -125,10 +179,36 @@ export function UserProvider({ children }) {
                     },
                 });
 
-                const data = await response.json();
+                const contentType = response.headers.get('content-type') || '';
+                const rawBody = await response.text();
+                const pareceJson =
+                    contentType.toLowerCase().includes('application/json') ||
+                    rawBody.trim().startsWith('{') ||
+                    rawBody.trim().startsWith('[');
+
+                if (!pareceJson) {
+                    const httpErr = new Error(
+                        `Respuesta no JSON del servicio RENIEC (HTTP ${response.status}).`
+                    );
+                    httpErr.isNetworkOrGateway = true;
+                    throw httpErr;
+                }
+
+                let data;
+                try {
+                    data = JSON.parse(rawBody);
+                } catch {
+                    const parseErr = new Error(
+                        `No se pudo interpretar la respuesta de RENIEC (HTTP ${response.status}).`
+                    );
+                    parseErr.isNetworkOrGateway = true;
+                    throw parseErr;
+                }
 
                 if (!response.ok || data.error) {
-                    throw new Error(data.error || 'DNI no encontrado o error en la consulta.');
+                    const apiErr = new Error(data.error || 'DNI no encontrado o error en la consulta.');
+                    apiErr.isBusinessError = response.status === 400 || response.status === 404 || Boolean(data.error);
+                    throw apiErr;
                 }
 
                 datosReniec = data;
@@ -136,25 +216,25 @@ export function UserProvider({ children }) {
                 nombres = separados.nombres;
                 apellidos = separados.apellidos;
             } catch (reniecError) {
-                console.warn('[UserContext] Error al consultar API Decolecta RENIEC (SSL/Red):', reniecError.message);
+                console.warn('[UserContext] Aviso al consultar API Decolecta RENIEC:', reniecError.message);
 
-                // Si ya existe en la base de datos de Supabase, recuperamos sus nombres y apellidos reales
+                let usuarioExistente = null;
                 try {
-                    const { data: usuarioExistente } = await supabase
+                    const { data } = await supabase
                         .from('usuarios')
                         .select('*')
                         .eq('dni', dniLimpio)
                         .maybeSingle();
-
-                    if (usuarioExistente?.nombres) {
-                        nombres = usuarioExistente.nombres;
-                        apellidos = usuarioExistente.apellidos || '';
-                    } else if (reniecError.message && !reniecError.message.includes('SSLHandshakeException') && !reniecError.message.includes('fetch failed')) {
-                        // Si fue un error de negocio real (DNI inexistente), lanzamos el error
-                        throw reniecError;
-                    }
+                    usuarioExistente = data;
                 } catch (dbCheckError) {
-                    console.warn('[UserContext] Error verificando usuario local:', dbCheckError.message);
+                    console.warn('[UserContext] Error verificando usuario en Supabase:', dbCheckError.message);
+                }
+
+                if (usuarioExistente?.nombres) {
+                    nombres = usuarioExistente.nombres;
+                    apellidos = usuarioExistente.apellidos || '';
+                } else if (reniecError.isBusinessError) {
+                    throw reniecError;
                 }
             }
         }
@@ -177,22 +257,42 @@ export function UserProvider({ children }) {
 
     const login = useCallback(async (userData) => {
         setUser(userData);
-        if (userData && userData.rol !== 'bombero') {
-            try {
+        if (!userData) return;
+
+        try {
+            if (userData.rol === 'bombero') {
+                await AsyncStorage.setItem(BOMBERO_SESSION_KEY, JSON.stringify(userData));
+                await AsyncStorage.removeItem(CITIZEN_SESSION_KEY);
+            } else {
                 await AsyncStorage.setItem(CITIZEN_SESSION_KEY, JSON.stringify(userData));
-            } catch (error) {
-                console.warn('[UserContext] No se pudo guardar la sesión ciudadana:', error);
+                await AsyncStorage.removeItem(BOMBERO_SESSION_KEY);
             }
+        } catch (error) {
+            console.warn('[UserContext] No se pudo guardar la sesión en AsyncStorage:', error);
         }
     }, []);
 
     const logout = useCallback(async () => {
+        const currentUser = userRef.current;
         setUser(null);
-        try {
-            await AsyncStorage.removeItem(CITIZEN_SESSION_KEY);
-        } catch (error) {
-            console.warn('[UserContext] Error al limpiar sesión ciudadana:', error);
+
+        if (currentUser && currentUser.rol !== 'bombero' && currentUser.id) {
+            try {
+                await supabase
+                    .from('usuarios')
+                    .update({ verificado: false })
+                    .eq('id', currentUser.id);
+            } catch (error) {
+                console.warn('[UserContext] No se pudo actualizar verificado=false en Supabase:', error);
+            }
         }
+
+        try {
+            await AsyncStorage.multiRemove([CITIZEN_SESSION_KEY, BOMBERO_SESSION_KEY]);
+        } catch (error) {
+            console.warn('[UserContext] Error al limpiar sesión en AsyncStorage:', error);
+        }
+
         try {
             await supabase.removeAllChannels();
         } catch (error) {
@@ -201,8 +301,8 @@ export function UserProvider({ children }) {
     }, []);
 
     const value = useMemo(
-        () => ({ user, login, logout, consultarDniReniec, RENIEC_API_KEY }),
-        [user, login, logout, consultarDniReniec]
+        () => ({ user, sessionLoaded, login, logout, consultarDniReniec, RENIEC_API_KEY }),
+        [user, sessionLoaded, login, logout, consultarDniReniec]
     );
 
     return <UserContext.Provider value={value}>{children}</UserContext.Provider>;

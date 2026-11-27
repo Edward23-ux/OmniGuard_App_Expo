@@ -138,14 +138,6 @@ export default function CitizenReportDetailScreen({ route, navigation }) {
                     </View>
 
                     <View style={styles.detailSection}>
-                        <Text style={styles.detailLabel}>Descripción</Text>
-                        <Text style={styles.detailValue}>
-                            {reporte.descripcion ||
-                                `Alerta de emergencia de tipo ${reporte.tipo || 'Emergencia'} enviada desde la plataforma ciudadana.`}
-                        </Text>
-                    </View>
-
-                    <View style={styles.detailSection}>
                         <Text style={styles.detailLabel}>Fotografía enviada</Text>
                         {fotoOriginalUrl ? (
                             <Image
